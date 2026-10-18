@@ -65,7 +65,7 @@ import lux.theme.BoardStyles
 import kotlin.math.sin
 
 @Composable
-fun MenuScreen(onPlay: () -> Unit, onContinue: () -> Unit, onEffects: () -> Unit) {
+fun MenuScreen(onPlay: () -> Unit, onContinue: () -> Unit, onEffects: () -> Unit, onFamily: () -> Unit) {
     val app = LocalApp.current
     val s = app.settings
     val st = BoardStyles.get(s.board)
@@ -142,13 +142,16 @@ fun MenuScreen(onPlay: () -> Unit, onContinue: () -> Unit, onEffects: () -> Unit
                 }
             }
             // PLAY is pinned to the bottom: always visible, always the biggest thing on screen.
-            Row(
+            Column(
                 Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xCC051419)))).padding(16.dp).padding(bottom = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically,
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 val pulse = 1f + 0.025f * sin(t * 3.2f)
-                BigButton("PLAY", onPlay, Modifier.weight(1f).widthIn(max = 420.dp).scale(pulse), 76.dp, textSize = 38.sp, icon = { playIcon(it) })
-                BigButton("Effects", onEffects, Modifier.width(132.dp), 64.dp, Color(0xFF7DD3FC), Color(0xFF2563EB), Color(0xFF0B1E4A), 22.sp)
+                BigButton("PLAY", onPlay, Modifier.fillMaxWidth().widthIn(max = 560.dp).scale(pulse), 76.dp, textSize = 38.sp, icon = { playIcon(it) })
+                Row(Modifier.widthIn(max = 560.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    BigButton("Family online", onFamily, Modifier.weight(1.6f), 60.dp, Color(0xFF5EEAD4), Color(0xFF0F766E), Color(0xFF032E2A), 22.sp)
+                    BigButton("Effects", onEffects, Modifier.weight(1f), 60.dp, Color(0xFF7DD3FC), Color(0xFF2563EB), Color(0xFF0B1E4A), 22.sp)
+                }
             }
         }
         AnimatedVisibility(showSettings, enter = fadeIn(), exit = fadeOut()) { SettingsOverlay { showSettings = false } }

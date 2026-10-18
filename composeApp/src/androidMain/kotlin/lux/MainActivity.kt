@@ -31,7 +31,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        platform = AndroidPlatform(this)
+        platform = AndroidPlatform(this, this)
         val app = AppContext(platform)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -53,7 +53,7 @@ class MainActivity : ComponentActivity() {
 }
 
 /** Android services: SharedPreferences, a SoundPool of recorded + synthesised sounds, and the vibrator. */
-class AndroidPlatform(context: Context) : Platform {
+class AndroidPlatform(context: Context, private val activity: android.app.Activity) : Platform {
     private val sp = context.getSharedPreferences("lux", Context.MODE_PRIVATE)
     override val prefs = object : Prefs {
         override fun getInt(key: String, default: Int) = sp.getInt(key, default)
@@ -101,6 +101,14 @@ class AndroidPlatform(context: Context) : Platform {
         val v = vibrator ?: return
         val (ms, amp) = when (strength) { Haptic.Light -> 12L to 60; Haptic.Medium -> 24L to 140; Haptic.Heavy -> 55L to 255 }
         runCatching { v.vibrate(VibrationEffect.createOneShot(ms, amp)) }
+    }
+
+    override fun share(text: String) {
+        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(android.content.Intent.EXTRA_TEXT, text) }
+        // WhatsApp directly when it is installed (that is where families share); otherwise the normal share sheet.
+        val whatsapp = android.content.Intent(send).setPackage("com.whatsapp")
+        val ok = runCatching { activity.startActivity(whatsapp) }.isSuccess
+        if (!ok) runCatching { activity.startActivity(android.content.Intent.createChooser(send, "Share invite")) }
     }
 
     fun release() = pool.release()

@@ -76,6 +76,7 @@ fun cpuSeats(n: Int = 4, human: Boolean = false): List<SeatConfig> {
 }
 
 fun main(args: Array<String>) {
+    if (args.firstOrNull() == "online") { onlineShots(args.getOrElse(1) { "http://localhost:8090" }); return }
     val want = args.toSet().ifEmpty { setOf("menu", "boards") }
     if ("menu" in want) record("menu", 1.2f, 1f, listOf(1.1f)) { LuxApp(AppContext(SilentPlatform), Nav()) }
     if ("boards" in want) for (b in BoardStyles.all) record("board_${b.id}", 0.8f, 1f, listOf(0.7f)) {

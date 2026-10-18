@@ -24,6 +24,8 @@ interface Platform {
     val prefs: Prefs
     fun play(id: SfxId, volume: Float = 1f, pitch: Float = 1f)
     fun vibrate(strength: Haptic)
+    /** Shares text (WhatsApp first if it is installed, otherwise the system share sheet). */
+    fun share(text: String) {}
 }
 
 /** Used by previews and screenshots: silent, and remembers settings only in memory. */
@@ -143,6 +145,7 @@ class SeriesStore(private val prefs: Prefs) {
 class AppContext(val platform: Platform) {
     val settings = Settings(platform.prefs)
     val series = SeriesStore(platform.prefs)
+    val net = lux.net.LuxClient(platform.prefs)
 
     fun sfx(id: SfxId, volume: Float = 1f, pitch: Float = 1f) { if (settings.sound) platform.play(id, volume, pitch) }
     fun haptic(s: Haptic) { if (settings.haptics) platform.vibrate(s) }
@@ -170,4 +173,9 @@ sealed interface Screen {
     data object Menu : Screen
     data object Match : Screen
     data object Showcase : Screen
+    /** Online: my family groups. */
+    data object Family : Screen
+    data class Group(val id: String) : Screen
+    /** Online: a room's lobby and its games. */
+    data class Room(val code: String, val groupId: String) : Screen
 }

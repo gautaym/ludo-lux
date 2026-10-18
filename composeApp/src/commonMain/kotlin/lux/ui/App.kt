@@ -55,10 +55,14 @@ fun LuxApp(app: AppContext, nav: Nav) {
                                 onPlay = { app.series.save(null); nav.matchKey++; nav.screen = Screen.Match },
                                 onContinue = { nav.matchKey++; nav.screen = Screen.Match },
                                 onEffects = { nav.screen = Screen.Showcase },
+                                onFamily = { nav.screen = Screen.Family },
                             )
                         }
                         Screen.Match -> key(nav.matchKey) { MatchHost(app, nav, showcase = false) }
                         Screen.Showcase -> MatchHost(app, nav, showcase = true)
+                        Screen.Family -> Box(Modifier.safeDrawingPadding()) { FamilyHome(nav) }
+                        is Screen.Group -> Box(Modifier.safeDrawingPadding()) { GroupScreen(nav, screen.id) }
+                        is Screen.Room -> RoomScreen(nav, screen.code, screen.groupId)
                     }
                 }
             }

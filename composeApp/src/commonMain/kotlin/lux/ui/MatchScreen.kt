@@ -145,9 +145,10 @@ fun MatchScreen(
                 val y = if (isTop) top - plateH + with(density) { 4.dp.toPx() } else top + side + with(density) { 4.dp.toPx() }
                 Box(Modifier.offset { IntOffset(x.roundToInt(), y.roundToInt()) }.width(pw).height(with(density) { (plateH - with(density) { 8.dp.toPx() }).toDp() })) {
                     PlayerPlate(
-                        name = cfg.name, cpu = cfg.cpu, color = st.seat[cfg.color], deep = st.seatDeep[cfg.color], light = st.seatLight[cfg.color], collar = st.collar,
+                        name = cfg.name, cpu = cfg.cpu, local = director.isLocal(seat), color = st.seat[cfg.color], deep = st.seatDeep[cfg.color], light = st.seatLight[cfg.color], collar = st.collar,
                         pieceColor = st.pieceSeat[cfg.color], pieceDeep = st.pieceDeep[cfg.color], pieceLight = st.pieceLight[cfg.color],
-                        active = director.current == seat && !director.over, hint = if (director.current == seat) director.hint else "",
+                        active = director.current == seat && !director.over,
+                        hint = if (director.current == seat) timerHint(stage, director, cfg.color, director.isLocal(seat)) ?: director.hint else "",
                         rank = director.rankOf(seat).takeIf { rv >= 0 && it > 0 && (director.state?.isActive(seat) == false) } ?: 0,
                         seatCount = director.seats.size, alignRight = !isLeft, seriesPoints = seriesPoints?.getOrNull(seat) ?: -1, softLast = director.softLastPlace,
                         onTap = { if (director.current == seat && !cfg.cpu) director.requestRoll() },
@@ -178,6 +179,17 @@ fun MatchScreen(
     }
 }
 
+/** Online turn timer: in the last 20 seconds the plate shows how long is left before the computer helps. */
+@Composable
+private fun timerHint(stage: Stage, director: MatchDirector, color: Int, local: Boolean): String? {
+    if (director.timerColor != color) return null
+    var left by remember(director.timerEndsAt) { mutableStateOf(99) }
+    LaunchedEffect(director.timerEndsAt) {
+        while (true) { left = (director.timerEndsAt - stage.time).toInt().coerceAtLeast(0); withFrameNanos { }; kotlinx.coroutines.delay(250) }
+    }
+    return if (left <= 20) "${if (local) director.hint.ifEmpty { "Your turn" } else "Playing"} · ${left}s" else null
+}
+
 @Composable
 private fun ToastView(director: MatchDirector) {
     val t = director.toast ?: return
@@ -203,7 +215,7 @@ private fun ToastView(director: MatchDirector) {
 
 @Composable
 private fun PlayerPlate(
-    name: String, cpu: Boolean, color: Color, deep: Color, light: Color, collar: Color,
+    name: String, cpu: Boolean, local: Boolean, color: Color, deep: Color, light: Color, collar: Color,
     pieceColor: Color, pieceDeep: Color, pieceLight: Color, active: Boolean, hint: String,
     rank: Int, seatCount: Int, alignRight: Boolean, seriesPoints: Int, softLast: Boolean, onTap: () -> Unit,
 ) {
@@ -242,7 +254,7 @@ private fun PlayerPlate(
             val sub = when {
                 rank > 0 -> if (rank == seatCount) (if (softLast) "Next round!" else "Last place") else listOf("", "Winner!", "2nd place", "3rd place")[rank.coerceAtMost(3)]
                 hint.isNotEmpty() -> hint
-                active -> if (cpu) "Thinking..." else "Your turn"
+                active -> if (cpu) "Thinking..." else if (local) "Your turn" else "Playing..."
                 else -> if (cpu) "Computer" else "Player"
             }
             Label(sub, 15.sp, if (active) Palette.gold else Palette.textDim, align = if (alignRight) TextAlign.End else TextAlign.Start)

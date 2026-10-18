@@ -24,6 +24,15 @@ import lux.core.MatchSession
 import lux.core.MatchSetup
 import lux.core.Phase
 import lux.core.RuleOptions
+import lux.core.net.Cmd
+import lux.core.net.ErrorMsg
+import lux.core.net.GameStarted
+import lux.core.net.ResultMsg
+import lux.core.net.ServerMsg
+import lux.core.net.Snapshot
+import lux.core.net.StateCodec
+import lux.core.net.TurnTimer
+import lux.net.RoomLink
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -51,7 +60,18 @@ class MatchDirector(val stage: Stage) {
 
     var session: MatchSession? = null
         private set
-    val state get() = session?.state
+    /** Online games have no local session: this mirrors the server's state after each result. */
+    private var mirror: GameState? = null
+    val state get() = session?.state ?: mirror
+    /** Seats played on this phone (online); null offline, where every human seat is local. */
+    var localColors: Set<Int>? = null
+        private set
+    fun isLocal(seat: Int) = seats.getOrNull(seat)?.let { !it.cpu && (localColors?.contains(it.color) ?: true) } ?: false
+    /** Online: whose turn timer is running, and the stage time it runs out (for the plate countdown). */
+    var timerColor by mutableIntStateOf(-1)
+        private set
+    var timerEndsAt by mutableStateOf(0f)
+        private set
     var seats: List<SeatConfig> = emptyList()
         private set
     private var sprites: List<List<PieceSprite>> = emptyList()
@@ -107,7 +127,11 @@ class MatchDirector(val stage: Stage) {
      * Starts a game. [startSeat] rolls first; [resume] continues a saved position instead of a fresh board
      * (its rules win over [rules]).
      */
-    fun start(configs: List<SeatConfig>, rules: RuleOptions, capture: Int, balanced: Boolean, startSeat: Int = 0, resume: GameState? = null) {
+    fun start(
+        configs: List<SeatConfig>, rules: RuleOptions, capture: Int, balanced: Boolean, startSeat: Int = 0, resume: GameState? = null,
+        /** Online: the server's state; there is no local session and [localColors] are the seats played on this phone. */
+        online: GameState? = null, localColors: Set<Int>? = null,
+    ) {
         stage.clear()
         val sorted = configs.sortedBy { it.color }
         seats = sorted
@@ -120,31 +144,128 @@ class MatchDirector(val stage: Stage) {
         showcaseSeconds = 0f
         matchStart = stage.time
         dice = QueueDice(balanced)
-        val restored = resume?.takeIf { r -> r.seatCount == sorted.size && (0 until r.seatCount).all { r.seatColor[it] == sorted[it].color } && !r.isOver }
-        session = if (restored != null) MatchSession(restored, dice)
+        val restored = (online ?: resume)?.takeIf { r -> r.seatCount == sorted.size && (0 until r.seatCount).all { r.seatColor[it] == sorted[it].color } && !r.isOver }
+        mirror = online
+        this.localColors = localColors
+        session = if (online != null) null
+        else if (restored != null) MatchSession(restored, dice)
         else MatchSession(MatchSetup(sorted.map { it.color }, rules, startSeat.coerceIn(0, sorted.size - 1)), dice)
         sprites = sorted.mapIndexed { s, cfg ->
             List(4) { p -> PieceSprite(s, p, cfg.color, Geo.baseSpot(cfg.color, p)).also { stage.pieces += it } }
         }
-        if (restored != null) {
-            // Put every piece where the saved game left it, then lay out stacks and finished pieces.
-            for (s in sorted.indices) {
-                finishedCount[s] = restored.progress[s].count { it == Board.FINISH }
-                for (p in 0 until 4) sprites[s][p].place(Geo.piece(sorted[s].color, p, restored.progress[s][p]))
-                if (restored.rank[s] > 0 && !restored.resigned[s]) giveAward(s, restored.rank[s])
-            }
-            relayout()
-            for (pc in stage.pieces) { pc.pos = pc.restPos; pc.scale = pc.restScale }
-        }
-        // Face the first human seat (the local player sits bottom-left: blue's corner).
-        val face = sorted.firstOrNull { !it.cpu }?.color ?: sorted[0].color
+        if (restored != null) layoutFrom(restored)
+        // Face the first seat played on this phone (the local player sits bottom-left: blue's corner).
+        val face = localColors?.let { lc -> sorted.firstOrNull { it.color in lc } }?.color ?: sorted.firstOrNull { !it.cpu }?.color ?: sorted[0].color
         stage.viewTurns = ((3 - face) % 4 + 4) % 4
         stage.die.visible = true
-        stage.die.pos = Geo.baseCentre(sorted[session!!.state.current].color)
+        stage.die.pos = Geo.baseCentre(sorted[state!!.current].color)
         stage.die.value = 6
         stage.die.rx = 0f; stage.die.ry = 0f; stage.die.rz = 0f
-        current = session!!.state.current
+        current = state!!.current
+        timerColor = -1
         rankVersion++
+    }
+
+    /** Puts every piece exactly where [s] has it (resuming a saved game, or lining up with the server again). */
+    private fun layoutFrom(s: GameState) {
+        for (seat in seats.indices) {
+            finishedCount[seat] = s.progress[seat].count { it == Board.FINISH }
+            for (p in 0 until 4) {
+                val pc = sprites[seat][p]
+                pc.busy = false; pc.cut = null; pc.spin = 0f; pc.dissolve = 0f; pc.visible = !s.resigned[seat]
+                pc.place(Geo.piece(seats[seat].color, p, s.progress[seat][p]))
+            }
+            if (s.rank[seat] > 0 && !s.resigned[seat]) giveAward(seat, s.rank[seat])
+        }
+        relayout()
+        for (pc in stage.pieces) { pc.pos = pc.restPos; pc.scale = pc.restScale }
+    }
+
+    // ================================================================ online
+
+    /**
+     * Plays an online game: the server is the authority. Results arrive in order on [link] and are animated exactly
+     * as offline ones. On this phone's turns, the player's tap is sent as a command - the server's answer (not the tap)
+     * moves the piece. If the turn timer ran out the server plays for them, and that result simply arrives instead.
+     * Returns a message that belongs to the next game (if one arrived), for the caller to start it.
+     */
+    suspend fun runOnline(link: RoomLink, localColors: Set<Int>): ServerMsg? {
+        stage.wait(0.2f)
+        var chimed = -1L
+        while (true) {
+            val s = state ?: return null
+            if (s.isOver) break
+            current = s.current
+            val cfg = seats[s.current]
+            val mine = cfg.color in localColors
+            var msg: ServerMsg? = link.incoming.tryReceive().getOrNull()
+            if (msg == null && s.phase == Phase.WaitingForRoll) {
+                moveDie(Geo.baseCentre(cfg.color))
+                stage.die.accent = style.seat[cfg.color]
+            }
+            if (msg == null && mine) {
+                if (s.phase == Phase.WaitingForRoll) {
+                    if (chimed != s.sequence) { chimed = s.sequence; app.sfx(SfxId.TurnPing, 0.5f) }
+                    stage.die.waiting = true
+                    hint = "Tap the dice!"
+                    rollRequested = false; tap = null
+                    while (!rollRequested && !tapOnDie(cfg.color) && link.incoming.isEmpty) stage.frame()
+                    stage.die.waiting = false
+                    hint = ""
+                    if (link.incoming.isEmpty) {
+                        rollRequested = false
+                        app.sfx(SfxId.DiceShake, 0.8f)
+                        link.send(Cmd(Random.nextLong(1, Long.MAX_VALUE), "roll", expected = s.sequence))
+                    }
+                } else {
+                    val legal = Engine.legalMoves(s, s.current, s.lastRoll, collapseBase = true)
+                    val pieces = sprites[s.current]
+                    var pick = -1
+                    if (legal.size == 1) {
+                        pick = legal[0].piece
+                        pieces[pick].selectable = true
+                        stage.wait(0.12f)
+                        pieces[pick].selectable = false
+                    } else {
+                        val options = options(s, pieces, legal, cfg.color)
+                        for (o in options) for (pc in o.pieces) pc.selectable = true
+                        stage.targets.clear()
+                        for (o in options) stage.targets += Target(o.dest, cfg.color)
+                        hint = "Pick a piece"
+                        pickRequested = -1; tap = null
+                        while (pick < 0 && link.incoming.isEmpty) { pick = resolvePick(s, options); if (pick < 0) stage.frame() }
+                        pieces.forEach { it.selectable = false }
+                        stage.targets.clear()
+                        hint = ""
+                    }
+                    if (pick >= 0 && link.incoming.isEmpty) {
+                        app.sfx(SfxId.Select, 0.5f)
+                        link.send(Cmd(Random.nextLong(1, Long.MAX_VALUE), "move", pick, s.sequence))
+                    }
+                }
+            }
+            msg = msg ?: link.incoming.receive()
+            when (msg) {
+                is ResultMsg -> {
+                    timerColor = -1
+                    if (msg.byCpu && mine) say("Time's up - the computer helped", Color.White, 1.2f)
+                    mirror = StateCodec.decode(msg.state)
+                    play(msg.events)
+                    relayout()
+                }
+                is Snapshot -> { mirror = StateCodec.decode(msg.state); layoutFrom(mirror!!) }
+                is TurnTimer -> { timerColor = msg.color; timerEndsAt = stage.time + msg.seconds }
+                is GameStarted -> return msg
+                is ErrorMsg -> {}
+                else -> {}
+            }
+        }
+        over = true
+        timerColor = -1
+        stage.wait(0.4f)
+        app.sfx(SfxId.Victory)
+        showResults = true
+        return null
     }
 
     /** Pieces each seat has brought home in the current game. */
