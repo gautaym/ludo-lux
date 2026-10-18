@@ -1,5 +1,7 @@
 package lux.core
 
+import kotlinx.serialization.Serializable
+
 enum class EventType {
     /** Seat rolled value. */
     Rolled,
@@ -32,6 +34,7 @@ enum class EventType {
 }
 
 /** Plain fact about something that happened. Presentation animates events; it never decides outcomes. */
+@Serializable
 data class GameEvent(
     val type: EventType,
     val seat: Int = 0,

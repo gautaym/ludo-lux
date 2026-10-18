@@ -1,0 +1,221 @@
+package lux.server
+
+import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
+import io.ktor.serialization.kotlinx.json.json
+import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationCall
+import io.ktor.server.application.install
+import io.ktor.server.cio.CIO
+import io.ktor.server.engine.embeddedServer
+import io.ktor.server.plugins.calllogging.CallLogging
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.plugins.origin
+import io.ktor.server.plugins.statuspages.StatusPages
+import io.ktor.server.request.header
+import io.ktor.server.request.receive
+import io.ktor.server.response.respond
+import io.ktor.server.response.respondText
+import io.ktor.server.routing.get
+import io.ktor.server.routing.post
+import io.ktor.server.routing.put
+import io.ktor.server.routing.routing
+import io.ktor.server.websocket.WebSockets
+import io.ktor.server.websocket.pingPeriod
+import io.ktor.server.websocket.timeout
+import io.ktor.server.websocket.webSocket
+import io.ktor.websocket.Frame
+import io.ktor.websocket.readText
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import lux.core.net.AuthResponse
+import lux.core.net.ClientMsg
+import lux.core.net.CreateGroupRequest
+import lux.core.net.CreateRoomRequest
+import lux.core.net.ErrorMsg
+import lux.core.net.ErrorResponse
+import lux.core.net.GroupDetail
+import lux.core.net.GroupSummary
+import lux.core.net.GuestRequest
+import lux.core.net.Hello
+import lux.core.net.JoinGroupRequest
+import lux.core.net.RenameRequest
+import lux.core.net.ServerMsg
+import lux.core.net.Wire
+import org.slf4j.LoggerFactory
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.time.Duration.Companion.seconds
+
+/**
+ * Configuration comes from environment variables so the same jar runs anywhere:
+ * PORT (8080), DB_PATH (ludolux.db), PUBLIC_URL (used in invite links), TURN_SECONDS (45).
+ */
+fun main() {
+    val env = System.getenv()
+    val port = env["PORT"]?.toIntOrNull() ?: 8080
+    val cfg = Config(
+        publicUrl = env["PUBLIC_URL"] ?: "http://localhost:$port",
+        turnSeconds = env["TURN_SECONDS"]?.toIntOrNull() ?: 45,
+    )
+    val store = Store(env["DB_PATH"] ?: "ludolux.db")
+    embeddedServer(CIO, port = port, host = "0.0.0.0") { luxServer(store, cfg) }.start(wait = true)
+}
+
+class HttpError(val status: HttpStatusCode, message: String) : Exception(message)
+
+/** Small fixed-window limiter (per key per window), so nobody can flood account creation or group joins. */
+class Limiter(private val max: Int, private val windowMs: Long) {
+    private val hits = ConcurrentHashMap<String, Pair<Long, Int>>()
+    fun allow(key: String, now: Long = System.currentTimeMillis()): Boolean {
+        val (start, n) = hits[key]?.takeIf { now - it.first < windowMs } ?: (now to 0)
+        hits[key] = start to n + 1
+        return n < max
+    }
+}
+
+fun Application.luxServer(store: Store, cfg: Config) {
+    val log = LoggerFactory.getLogger("lux")
+    val scope = CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+    val rooms = Rooms(store, cfg, scope)
+    val guestLimit = Limiter(20, 3_600_000)
+    val joinLimit = Limiter(30, 600_000)
+    scope.launch { while (true) { delay(60_000); rooms.sweep() } }
+
+    install(ContentNegotiation) { json(Wire.json) }
+    install(CallLogging)
+    install(WebSockets) {
+        pingPeriod = 20.seconds
+        timeout = 60.seconds
+        maxFrameSize = 16 * 1024
+    }
+    install(StatusPages) {
+        exception<HttpError> { call, e -> call.respond(e.status, ErrorResponse(e.message ?: "error")) }
+        exception<kotlinx.serialization.SerializationException> { call, _ -> call.respond(HttpStatusCode.BadRequest, ErrorResponse("Bad request.")) }
+        exception<Throwable> { call, e -> log.error("unhandled", e); call.respond(HttpStatusCode.InternalServerError, ErrorResponse("Something went wrong.")) }
+    }
+
+    fun ApplicationCall.user(): User {
+        val token = request.header("Authorization")?.removePrefix("Bearer ")?.trim()
+            ?: throw HttpError(HttpStatusCode.Unauthorized, "Not signed in.")
+        return store.userByToken(token) ?: throw HttpError(HttpStatusCode.Unauthorized, "Not signed in.")
+    }
+
+    fun detail(g: Group): GroupDetail = GroupDetail(
+        g.id, g.name, g.code, "${cfg.publicUrl}/g/${g.code}", store.standings(g.id), rooms.inGroup(g.id).map { it.snapshotInfo() },
+    )
+
+    fun name(raw: String) = Wire.cleanName(raw).ifEmpty { throw HttpError(HttpStatusCode.BadRequest, "Please enter a name.") }
+
+    routing {
+        get("/health") { call.respondText("ok") }
+
+        // ---- accounts
+        post("/v1/auth/guest") {
+            if (!guestLimit.allow(call.request.origin.remoteHost)) throw HttpError(HttpStatusCode.TooManyRequests, "Too many new accounts. Try again later.")
+            val req = call.receive<GuestRequest>()
+            val (user, token) = store.createGuest(name(req.name))
+            call.respond(AuthResponse(user.id, token, user.name))
+        }
+        get("/v1/me") { val u = call.user(); call.respond(AuthResponse(u.id, "", u.name)) }
+        put("/v1/me") {
+            val u = call.user()
+            val n = name(call.receive<RenameRequest>().name)
+            store.rename(u.id, n)
+            call.respond(AuthResponse(u.id, "", n))
+        }
+
+        // ---- family groups (a person can be in any number of them)
+        get("/v1/groups") {
+            val u = call.user()
+            call.respond(store.groupsOf(u.id).map { g ->
+                val rank = store.standings(g.id).indexOfFirst { it.userId == u.id } + 1
+                GroupSummary(g.id, g.name, g.code, store.memberCount(g.id), rank, rooms.inGroup(g.id).size)
+            })
+        }
+        post("/v1/groups") {
+            val u = call.user()
+            val n = name(call.receive<CreateGroupRequest>().name)
+            val code = rooms.newCode { store.codeTaken(it) || rooms.get(it) != null }
+            call.respond(detail(store.createGroup(n, u.id, code)))
+        }
+        post("/v1/groups/join") {
+            val u = call.user()
+            if (!joinLimit.allow(u.id)) throw HttpError(HttpStatusCode.TooManyRequests, "Too many tries. Wait a few minutes.")
+            val code = Wire.cleanCode(call.receive<JoinGroupRequest>().code)
+            // A group code, or a room code shared from a group (joining the room's group too).
+            val g = store.groupByCode(code) ?: rooms.get(code)?.let { store.group(it.groupId) }
+                ?: throw HttpError(HttpStatusCode.NotFound, "No group or game with that code.")
+            store.addMember(g.id, u.id)
+            call.respond(detail(g))
+        }
+        get("/v1/groups/{id}") {
+            val u = call.user()
+            val g = store.group(call.parameters["id"]!!) ?: throw HttpError(HttpStatusCode.NotFound, "No such group.")
+            if (!store.isMember(g.id, u.id)) throw HttpError(HttpStatusCode.Forbidden, "You are not in this group.")
+            call.respond(detail(g))
+        }
+
+        // ---- rooms (live games inside a group)
+        post("/v1/rooms") {
+            val u = call.user()
+            val req = call.receive<CreateRoomRequest>()
+            if (!store.isMember(req.groupId, u.id)) throw HttpError(HttpStatusCode.Forbidden, "You are not in this group.")
+            if (req.players !in 2..4 || req.seriesGames !in listOf(1, 3, 5) || req.capture !in 0..7) throw HttpError(HttpStatusCode.BadRequest, "Bad game settings.")
+            val room = rooms.create(req.groupId, u, req.players, req.seriesGames, req.board.take(16), req.capture)
+            call.respond(room.snapshotInfo())
+        }
+        get("/v1/rooms/{code}") {
+            val u = call.user()
+            val room = rooms.get(Wire.cleanCode(call.parameters["code"]!!)) ?: throw HttpError(HttpStatusCode.NotFound, "That game has ended.")
+            store.addMember(room.groupId, u.id)
+            call.respond(room.snapshotInfo())
+        }
+
+        // ---- invite links (WhatsApp etc.): a simple page with the code until app links are set up
+        get("/g/{code}") { call.invitePage("Join the family group on Ludo Lux", Wire.cleanCode(call.parameters["code"]!!)) }
+        get("/r/{code}") { call.invitePage("Join the game on Ludo Lux", Wire.cleanCode(call.parameters["code"]!!)) }
+
+        // ---- live play
+        webSocket("/v1/play") {
+            val out = Channel<ServerMsg>(256)
+            val writer = launch { for (m in out) send(Frame.Text(Wire.json.encodeToString(ServerMsg.serializer(), m))) }
+            // Never block the room: a client that falls 256 messages behind just misses some (it resyncs from the next state).
+            fun reply(m: ServerMsg) { out.trySend(m) }
+            val hello = withTimeoutOrNull(10.seconds) { (incoming.receive() as? Frame.Text)?.readText() }
+                ?.let { runCatching { Wire.json.decodeFromString(ClientMsg.serializer(), it) }.getOrNull() } as? Hello
+            val user = hello?.let { store.userByToken(it.token) }
+            val room = hello?.let { rooms.get(Wire.cleanCode(it.room)) }
+            if (user == null || room == null || !store.isMember(room.groupId, user.id)) {
+                reply(ErrorMsg(if (room == null) "That game has ended." else "Not allowed."))
+                out.close(); writer.join()
+                return@webSocket
+            }
+            val conn = Conn(user) { reply(it) }
+            room.inbox.trySend(Room.Join(conn))
+            try {
+                for (frame in incoming) {
+                    if (frame !is Frame.Text) continue
+                    val msg = runCatching { Wire.json.decodeFromString(ClientMsg.serializer(), frame.readText()) }.getOrNull() ?: continue
+                    room.inbox.trySend(Room.Msg(conn, msg))
+                }
+            } finally {
+                room.inbox.trySend(Room.Leave(conn))
+                out.close()
+            }
+        }
+    }
+}
+
+private suspend fun ApplicationCall.invitePage(title: String, code: String) {
+    // Only the cleaned code is echoed into the page, so nothing a visitor types can be injected.
+    val html = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>$title</title><style>body{font-family:system-ui,sans-serif;background:#0b2129;color:#fdf8ec;text-align:center;padding:40px 16px}
+.code{font-size:44px;letter-spacing:6px;color:#ffc94a;font-weight:800;margin:16px 0}p{font-size:18px;line-height:1.5}</style></head>
+<body><h1>$title</h1><p>Open Ludo Lux, tap <b>Family</b>, then <b>Join with code</b> and enter:</p><div class="code">$code</div>
+<p>Don't have the app yet? Ask the person who sent this link for it.</p></body></html>"""
+    respondText(html, ContentType.Text.Html)
+}
