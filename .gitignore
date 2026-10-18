@@ -1,0 +1,11 @@
+.gradle/
+build/
+.kotlin/
+local.properties
+.idea/
+*.iml
+captures/
+# Generated: headless screenshots, built APKs, logs
+shots/
+dist/
+*.log

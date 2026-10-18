@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A golden pawn on a four-colour ring: the Ludo Lux mark. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#D61A29" android:pathData="M54,24 A30,30 0 0,1 84,54 L76,54 A22,22 0 0,0 54,32 Z" />
+    <path android:fillColor="#0A9952" android:pathData="M84,54 A30,30 0 0,1 54,84 L54,76 A22,22 0 0,0 76,54 Z" />
+    <path android:fillColor="#FFCC0F" android:pathData="M54,84 A30,30 0 0,1 24,54 L32,54 A22,22 0 0,0 54,76 Z" />
+    <path android:fillColor="#1F57E0" android:pathData="M24,54 A30,30 0 0,1 54,24 L54,32 A22,22 0 0,0 32,54 Z" />
+    <path android:fillColor="#5A2E00" android:pathData="M43,71 C43,64 49,60 49.5,52 L58.5,52 C59,60 65,64 65,71 C60,73.5 48,73.5 43,71 Z" />
+    <path android:fillColor="#FFC94A" android:pathData="M44.5,70 C44.5,64 50.2,60.5 50.6,53 L57.4,53 C57.8,60.5 63.5,64 63.5,70 C59,72 49,72 44.5,70 Z" />
+    <path android:fillColor="#FFE9A8" android:pathData="M48,49 a6,2.2 0 1,0 12,0 a6,2.2 0 1,0 -12,0 Z" />
+    <path android:fillColor="#5A2E00" android:pathData="M46.6,42 a7.4,7.4 0 1,0 14.8,0 a7.4,7.4 0 1,0 -14.8,0 Z" />
+    <path android:fillColor="#FFC94A" android:pathData="M47.6,42 a6.4,6.4 0 1,0 12.8,0 a6.4,6.4 0 1,0 -12.8,0 Z" />
+    <path android:fillColor="#FFFFFF" android:fillAlpha="0.8" android:pathData="M49.5,39.5 a2.2,1.5 0 1,0 4.4,0 a2.2,1.5 0 1,0 -4.4,0 Z" />
+</vector>
