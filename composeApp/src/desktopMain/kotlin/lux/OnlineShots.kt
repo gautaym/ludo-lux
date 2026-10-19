@@ -120,3 +120,66 @@ fun onlineShots(server: String, seconds: Float = 60f) {
     print(log)
     println("shots/online: done")
 }
+
+/**
+ * Ranked end to end: the rendered app ("Asha") opens Ranked, taps "2 players" at [tap] (pixels), and a bot ("Bina")
+ * queues too; they are matched and play. Asha never moves herself, so the server's (short) turn timer plays for her.
+ * Usage: shots -PshotArgs="ranked http://localhost:8090 <x> <y> <seconds>"
+ */
+@OptIn(ExperimentalComposeUiApi::class, kotlinx.coroutines.DelicateCoroutinesApi::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+fun rankedShots(server: String, tap: androidx.compose.ui.geometry.Offset?, seconds: Float) {
+    val ui = newSingleThreadContext("ui")
+    val dir = File("shots/ranked").apply { deleteRecursively(); mkdirs() }
+    val app = AppContext(TestPlatform())
+    app.net.changeServer(server)
+    val nav = Nav().apply { screen = Screen.Ranked }
+    val bots = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val log = StringBuilder()
+    runBlocking(ui) {
+        app.net.signIn("Asha")
+        val bina = LuxClient(MemPrefs()).apply { changeServer(server); signIn("Bina") }
+        bots.launch {
+            delay(9000)
+            var st = bina.queue(2)
+            while (st.state != lux.core.net.QueueState.Matched) { delay(500); st = bina.queueStatus() }
+            log.appendLine("bina matched into ${st.room}")
+            val link = RoomLink(bina, st.room, this)
+            link.start()
+            for (m in link.incoming) {
+                if (m is lux.core.net.RankedResult) log.appendLine("ranked: " + m.changes.joinToString { "${it.name} #${it.place} ${it.delta} ${it.before}->${it.after} placement=${it.placement}" })
+                val state = when (m) { is GameStarted -> m.state; is Snapshot -> m.state; is ResultMsg -> m.state; else -> null } ?: continue
+                val s = StateCodec.decode(state)
+                val myColor = link.room?.seats?.firstOrNull { it.userId == bina.userId }?.color ?: continue
+                if (s.isOver || s.seatColor[s.current] != myColor) continue
+                delay(900)
+                val cmd = if (s.phase == Phase.WaitingForRoll) Cmd(Random.nextLong(1, Long.MAX_VALUE), "roll", expected = s.sequence)
+                else Cmd(Random.nextLong(1, Long.MAX_VALUE), "move", Cpu.chooseMove(s, s.current, CpuLevel.Medium, Random), s.sequence)
+                link.send(cmd)
+            }
+        }
+        ImageComposeScene(540, 1170, Density(1.375f), coroutineContext = ui) { LuxApp(app, nav) }.use { scene ->
+            val start = System.nanoTime()
+            var n = 0
+            var nextSave = 0f
+            var tapped = false
+            while (true) {
+                val t = (System.nanoTime() - start) / 1e9f
+                if (t > seconds) break
+                if (!tapped && tap != null && t > 4f) {
+                    tapped = true
+                    scene.sendPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Press, tap)
+                    scene.sendPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Release, tap)
+                }
+                val img = scene.render(System.nanoTime() - start)
+                if (t >= nextSave) {
+                    nextSave += 1f
+                    File(dir, "f%04d.png".format(n++)).writeBytes(img.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+                }
+                delay(16)
+            }
+        }
+    }
+    bots.cancel()
+    print(log)
+    println("shots/ranked: done")
+}

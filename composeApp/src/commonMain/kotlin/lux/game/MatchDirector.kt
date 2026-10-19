@@ -38,7 +38,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
 
-class SeatConfig(val color: Int, val cpu: Boolean, val level: CpuLevel = CpuLevel.Medium, val name: String)
+class SeatConfig(val color: Int, val cpu: Boolean, val level: CpuLevel = CpuLevel.Medium, val name: String, val badge: String = "")
 
 /** Dice that let tests and the effects reel queue specific rolls; otherwise balanced or fair dice. */
 class QueueDice(balanced: Boolean) : DiceSource {

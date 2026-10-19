@@ -65,7 +65,7 @@ import lux.theme.BoardStyles
 import kotlin.math.sin
 
 @Composable
-fun MenuScreen(onPlay: () -> Unit, onContinue: () -> Unit, onEffects: () -> Unit, onFamily: () -> Unit) {
+fun MenuScreen(onPlay: () -> Unit, onContinue: () -> Unit, onEffects: () -> Unit, onFamily: () -> Unit, onRanked: () -> Unit) {
     val app = LocalApp.current
     val s = app.settings
     val st = BoardStyles.get(s.board)
@@ -149,8 +149,9 @@ fun MenuScreen(onPlay: () -> Unit, onContinue: () -> Unit, onEffects: () -> Unit
                 val pulse = 1f + 0.025f * sin(t * 3.2f)
                 BigButton("PLAY", onPlay, Modifier.fillMaxWidth().widthIn(max = 560.dp).scale(pulse), 76.dp, textSize = 38.sp, icon = { playIcon(it) })
                 Row(Modifier.widthIn(max = 560.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    BigButton("Family online", onFamily, Modifier.weight(1.6f), 60.dp, Color(0xFF5EEAD4), Color(0xFF0F766E), Color(0xFF032E2A), 22.sp)
-                    BigButton("Effects", onEffects, Modifier.weight(1f), 60.dp, Color(0xFF7DD3FC), Color(0xFF2563EB), Color(0xFF0B1E4A), 22.sp)
+                    BigButton("Family", onFamily, Modifier.weight(1f), 60.dp, Color(0xFF5EEAD4), Color(0xFF0F766E), Color(0xFF032E2A), 21.sp)
+                    BigButton("Ranked", onRanked, Modifier.weight(1f), 60.dp, Color(0xFFF0ABFC), Color(0xFF9333EA), Color(0xFF2E0A3D), 21.sp)
+                    BigButton("Effects", onEffects, Modifier.weight(1f), 60.dp, Color(0xFF7DD3FC), Color(0xFF2563EB), Color(0xFF0B1E4A), 21.sp)
                 }
             }
         }

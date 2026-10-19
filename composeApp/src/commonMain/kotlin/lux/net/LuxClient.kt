@@ -10,6 +10,7 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.bearerAuth
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -105,6 +106,14 @@ class LuxClient(private val prefs: Prefs) {
         call { http.post(url("/v1/groups/join")) { bearerAuth(token); contentType(ContentType.Application.Json); setBody(JoinGroupRequest(code)) } }
     suspend fun createRoom(req: CreateRoomRequest): RoomInfo =
         call { http.post(url("/v1/rooms")) { bearerAuth(token); contentType(ContentType.Application.Json); setBody(req) } }
+
+    // ---- ranked
+    suspend fun rankedMe(): lux.core.net.RankedProfile = call { http.get(url("/v1/ranked/me")) { bearerAuth(token) } }
+    suspend fun leaderboard(): lux.core.net.Leaderboard = call { http.get(url("/v1/ranked/leaderboard")) { bearerAuth(token) } }
+    suspend fun queue(players: Int): lux.core.net.QueueStatus =
+        call { http.post(url("/v1/ranked/queue")) { bearerAuth(token); contentType(ContentType.Application.Json); setBody(lux.core.net.QueueRequest(players)) } }
+    suspend fun queueStatus(): lux.core.net.QueueStatus = call { http.get(url("/v1/ranked/queue")) { bearerAuth(token) } }
+    suspend fun cancelQueue() { runCatching { http.delete(url("/v1/ranked/queue")) { bearerAuth(token) } } }
 
     fun wsUrl() = server.replaceFirst("http", "ws") + "/v1/play"
 }

@@ -76,6 +76,7 @@ fun cpuSeats(n: Int = 4, human: Boolean = false): List<SeatConfig> {
 }
 
 fun main(args: Array<String>) {
+    if (args.firstOrNull() == "ranked") { rankedShots(args[1], args.getOrNull(3)?.let { androidx.compose.ui.geometry.Offset(args[2].toFloat(), it.toFloat()) }, args.getOrNull(4)?.toFloat() ?: 4f); return }
     if (args.firstOrNull() == "online") { onlineShots(args.getOrElse(1) { "http://localhost:8090" }); return }
     val want = args.toSet().ifEmpty { setOf("menu", "boards") }
     if ("menu" in want) record("menu", 1.2f, 1f, listOf(1.1f)) { LuxApp(AppContext(SilentPlatform), Nav()) }
@@ -166,6 +167,17 @@ fun main(args: Array<String>) {
             }
         }
         print(log)
+    }
+    if ("rankedresult" in want) {
+        val r = lux.core.net.RankedResult(listOf(
+            lux.core.net.RankChange(0, "me", "Asha", 1, 21, "Silver I", "Gold III", promoted = true, demoted = false, placement = 0, left = false),
+            lux.core.net.RankChange(1, "b", "Bina", 2, 6, "Gold II", "Gold II", promoted = false, demoted = false, placement = 0, left = false),
+            lux.core.net.RankChange(2, "c", "Chetan", 3, -9, "Gold III", "Gold III", promoted = false, demoted = false, placement = 0, left = false),
+            lux.core.net.RankChange(3, "d", "Dev", 4, -18, "Silver II", "Silver III", promoted = false, demoted = true, placement = 0, left = true),
+        ))
+        record("ranked_result", 1.5f, 1f, listOf(1.4f)) {
+            ProvideLux(AppContext(SilentPlatform)) { lux.ui.RankedResultOverlay(r, BoardStyles.royal, "me", {}, {}) }
+        }
     }
     if ("showcase" in want) {
         val app = AppContext(SilentPlatform)

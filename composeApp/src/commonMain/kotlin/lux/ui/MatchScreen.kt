@@ -145,7 +145,7 @@ fun MatchScreen(
                 val y = if (isTop) top - plateH + with(density) { 4.dp.toPx() } else top + side + with(density) { 4.dp.toPx() }
                 Box(Modifier.offset { IntOffset(x.roundToInt(), y.roundToInt()) }.width(pw).height(with(density) { (plateH - with(density) { 8.dp.toPx() }).toDp() })) {
                     PlayerPlate(
-                        name = cfg.name, cpu = cfg.cpu, local = director.isLocal(seat), color = st.seat[cfg.color], deep = st.seatDeep[cfg.color], light = st.seatLight[cfg.color], collar = st.collar,
+                        name = cfg.name, cpu = cfg.cpu, local = director.isLocal(seat), badge = cfg.badge, color = st.seat[cfg.color], deep = st.seatDeep[cfg.color], light = st.seatLight[cfg.color], collar = st.collar,
                         pieceColor = st.pieceSeat[cfg.color], pieceDeep = st.pieceDeep[cfg.color], pieceLight = st.pieceLight[cfg.color],
                         active = director.current == seat && !director.over,
                         hint = if (director.current == seat) timerHint(stage, director, cfg.color, director.isLocal(seat)) ?: director.hint else "",
@@ -215,7 +215,7 @@ private fun ToastView(director: MatchDirector) {
 
 @Composable
 private fun PlayerPlate(
-    name: String, cpu: Boolean, local: Boolean, color: Color, deep: Color, light: Color, collar: Color,
+    name: String, cpu: Boolean, local: Boolean, badge: String, color: Color, deep: Color, light: Color, collar: Color,
     pieceColor: Color, pieceDeep: Color, pieceLight: Color, active: Boolean, hint: String,
     rank: Int, seatCount: Int, alignRight: Boolean, seriesPoints: Int, softLast: Boolean, onTap: () -> Unit,
 ) {
@@ -255,7 +255,7 @@ private fun PlayerPlate(
                 rank > 0 -> if (rank == seatCount) (if (softLast) "Next round!" else "Last place") else listOf("", "Winner!", "2nd place", "3rd place")[rank.coerceAtMost(3)]
                 hint.isNotEmpty() -> hint
                 active -> if (cpu) "Thinking..." else if (local) "Your turn" else "Playing..."
-                else -> if (cpu) "Computer" else "Player"
+                else -> badge.ifEmpty { if (cpu) "Computer" else "Player" }
             }
             Label(sub, 15.sp, if (active) Palette.gold else Palette.textDim, align = if (alignRight) TextAlign.End else TextAlign.Start)
         }

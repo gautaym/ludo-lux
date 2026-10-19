@@ -176,6 +176,8 @@ sealed interface Screen {
     /** Online: my family groups. */
     data object Family : Screen
     data class Group(val id: String) : Screen
-    /** Online: a room's lobby and its games. */
+    /** Online: a room's lobby and its games (groupId is empty for ranked rooms). */
     data class Room(val code: String, val groupId: String) : Screen
+    /** Ranked: my tier, find a match, the season leaderboard. */
+    data object Ranked : Screen
 }

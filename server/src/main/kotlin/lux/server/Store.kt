@@ -34,6 +34,8 @@ class Store(path: String) {
             st.execute("CREATE TABLE IF NOT EXISTS games(id INTEGER PRIMARY KEY AUTOINCREMENT, group_id TEXT NOT NULL REFERENCES groups(id), room TEXT NOT NULL, finished INTEGER NOT NULL)")
             st.execute("CREATE TABLE IF NOT EXISTS game_players(game_id INTEGER NOT NULL REFERENCES games(id), user_id TEXT NOT NULL REFERENCES users(id), rank INTEGER NOT NULL, pieces INTEGER NOT NULL, points INTEGER NOT NULL)")
             st.execute("CREATE TABLE IF NOT EXISTS series_wins(group_id TEXT NOT NULL REFERENCES groups(id), user_id TEXT NOT NULL REFERENCES users(id), at INTEGER NOT NULL)")
+            st.execute("CREATE TABLE IF NOT EXISTS ranked(user_id TEXT PRIMARY KEY REFERENCES users(id), rating REAL NOT NULL, games INTEGER NOT NULL, wins INTEGER NOT NULL, floor_tier INTEGER NOT NULL, shield INTEGER NOT NULL, peak INTEGER NOT NULL, season TEXT NOT NULL)")
+            st.execute("CREATE INDEX IF NOT EXISTS ranked_board ON ranked(season, rating)")
             st.execute("CREATE INDEX IF NOT EXISTS gp_user ON game_players(user_id)")
             st.execute("CREATE INDEX IF NOT EXISTS games_group ON games(group_id, finished)")
         }
@@ -164,6 +166,40 @@ class Store(path: String) {
             }
         }.sortedWith(compareByDescending<MemberStanding> { it.points }.thenByDescending { it.wins }.thenBy { it.games }.thenBy { it.name })
     }
+
+    // ---------------- ranked (separate from groups)
+
+    /** This user's record for [season] (a new season eases the rating; a first-timer starts fresh). */
+    @Synchronized fun ranked(userId: String, season: String): lux.core.Ranked.Record {
+        val r = db.prepareStatement("SELECT rating, games, wins, floor_tier, shield, peak, season FROM ranked WHERE user_id = ?").use {
+            it.setString(1, userId)
+            it.executeQuery().use { q -> if (q.next()) lux.core.Ranked.Record(q.getDouble(1), q.getInt(2), q.getInt(3), q.getInt(4), q.getInt(5), q.getInt(6), q.getString(7)) else null }
+        } ?: lux.core.Ranked.Record(season = season)
+        return lux.core.Ranked.newSeason(r, season)
+    }
+
+    @Synchronized fun saveRanked(userId: String, r: lux.core.Ranked.Record) {
+        db.prepareStatement("INSERT OR REPLACE INTO ranked(user_id, rating, games, wins, floor_tier, shield, peak, season) VALUES(?,?,?,?,?,?,?,?)").use {
+            it.setString(1, userId); it.setDouble(2, r.rating); it.setInt(3, r.games); it.setInt(4, r.wins)
+            it.setInt(5, r.floorTier); it.setInt(6, r.shield); it.setInt(7, r.peak); it.setString(8, r.season); it.executeUpdate()
+        }
+    }
+
+    /** Placed players of [season], best first: (userId, name, record). */
+    @Synchronized fun leaderboard(season: String, limit: Int): List<Triple<String, String, lux.core.Ranked.Record>> =
+        db.prepareStatement("SELECT r.user_id, u.name, r.rating, r.games, r.wins, r.floor_tier, r.shield, r.peak FROM ranked r JOIN users u ON u.id = r.user_id WHERE r.season = ? AND r.games >= ? ORDER BY r.rating DESC LIMIT ?").use {
+            it.setString(1, season); it.setInt(2, lux.core.Ranked.PLACEMENT_GAMES); it.setInt(3, limit)
+            it.executeQuery().use { q ->
+                buildList { while (q.next()) add(Triple(q.getString(1), q.getString(2), lux.core.Ranked.Record(q.getDouble(3), q.getInt(4), q.getInt(5), q.getInt(6), q.getInt(7), q.getInt(8), season))) }
+            }
+        }
+
+    /** 1-based leaderboard place for [rating] in [season] (placed players only). */
+    @Synchronized fun rankedPosition(season: String, rating: Double): Int =
+        db.prepareStatement("SELECT COUNT(*) FROM ranked WHERE season = ? AND games >= ? AND rating > ?").use {
+            it.setString(1, season); it.setInt(2, lux.core.Ranked.PLACEMENT_GAMES); it.setDouble(3, rating)
+            it.executeQuery().use { q -> q.next(); q.getInt(1) + 1 }
+        }
 
     private fun hash(token: String): String =
         MessageDigest.getInstance("SHA-256").digest(token.toByteArray()).joinToString("") { "%02x".format(it) }

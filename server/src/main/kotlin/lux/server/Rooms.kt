@@ -61,7 +61,7 @@ class Rooms(private val store: Store, private val cfg: Config, private val scope
     private val rng = SecureRandom()
 
     fun get(code: String) = rooms[code]
-    fun inGroup(groupId: String) = rooms.values.filter { it.groupId == groupId && it.status != RoomStatus.Done }
+    fun inGroup(groupId: String) = rooms.values.filter { !it.ranked && it.groupId == groupId && it.status != RoomStatus.Done }
 
     fun newCode(taken: (String) -> Boolean): String {
         while (true) {
@@ -73,6 +73,18 @@ class Rooms(private val store: Store, private val cfg: Config, private val scope
     fun create(groupId: String, host: User, players: Int, seriesGames: Int, board: String, capture: Int): Room {
         val code = newCode { rooms.containsKey(it) || store.codeTaken(it) }
         val room = Room(code, groupId, host.id, players, seriesGames, board, capture, store, cfg)
+        rooms[code] = room
+        scope.launch { room.run() }
+        return room
+    }
+
+    /**
+     * A ranked room for players the matchmaker paired: one game, seats shuffled, no lobby (it starts as soon as
+     * everyone is connected, or after a short grace period), rated at the end. No computer players.
+     */
+    fun createRanked(users: List<User>): Room {
+        val code = newCode { rooms.containsKey(it) || store.codeTaken(it) }
+        val room = Room(code, "", users.first().id, users.size, 1, "royal", 7, store, cfg, rankedPlayers = users.shuffled(rng))
         rooms[code] = room
         scope.launch { room.run() }
         return room
@@ -102,8 +114,15 @@ class Room(
     val capture: Int,
     private val store: Store,
     private val cfg: Config,
+    /** Ranked room: these players, in seat order. Null for family rooms. */
+    rankedPlayers: List<User>? = null,
 ) {
     private val log = LoggerFactory.getLogger("room.$code")
+    val ranked = rankedPlayers != null
+    private val created = System.currentTimeMillis()
+    /** Ranked: consecutive own turns each seat spent away (the computer covering). 3 in a row = left the game. */
+    private val awayStreak = IntArray(players)
+    private val leftGame = BooleanArray(players)
 
     sealed interface Act
     class Join(val conn: Conn) : Act
@@ -115,7 +134,18 @@ class Room(
 
     private class Seat(val color: Int, var userId: String? = null, var name: String = "", var cpu: Boolean = false)
 
-    private val seats = MatchSetup.default(players).colors.map { Seat(it) }
+    private val seats = MatchSetup.default(players).colors.map { Seat(it) }.also { s ->
+        rankedPlayers?.forEachIndexed { i, u -> s[i].userId = u.id; s[i].name = u.name }
+    }
+    /** Ranked: each seat's visible rank at the start (shown on the plates). */
+    private val rankLabels = Array(players) { "" }
+
+    init {
+        if (rankedPlayers != null) {
+            val season = Seasons.current()
+            rankedPlayers.forEachIndexed { i, u -> rankLabels[i] = store.ranked(u.id, season).let { r -> r.division?.name ?: "Placement" } }
+        }
+    }
     private val conns = LinkedHashMap<String, MutableSet<Conn>>()
     @Volatile var status = RoomStatus.Lobby
         private set
@@ -165,7 +195,7 @@ class Room(
         lastActivity = System.currentTimeMillis()
         conns.getOrPut(c.user.id) { LinkedHashSet() } += c
         // Seat the newcomer in the lobby (first free seat); players already seated keep theirs when they come back.
-        if (status == RoomStatus.Lobby && seats.none { it.userId == c.user.id }) {
+        if (!ranked && status == RoomStatus.Lobby && seats.none { it.userId == c.user.id }) {
             seats.firstOrNull { it.userId == null && !it.cpu }?.let { it.userId = c.user.id; it.name = c.user.name }
         }
         seats.filter { it.userId == c.user.id }.forEach { it.name = c.user.name }
@@ -178,9 +208,12 @@ class Room(
 
     private fun info() = RoomInfo(
         code, groupId, hostId, players, seriesGames, board, capture, status,
-        seats.map { SeatInfo(it.color, it.userId, it.name, it.cpu, connected(it.userId)) },
-        series?.encode() ?: "", "${cfg.publicUrl}/r/$code",
+        seats.mapIndexed { i, it -> SeatInfo(it.color, it.userId, it.name, it.cpu, connected(it.userId), rankLabels[i]) },
+        series?.encode() ?: "", "${cfg.publicUrl}/r/$code", ranked,
     )
+
+    /** Whether [userId] may join this room's live connection (family rooms check group membership instead). */
+    fun seated(userId: String) = seats.any { it.userId == userId }
 
     fun snapshotInfo() = info()
 
@@ -234,11 +267,18 @@ class Room(
         log.info("game ${game + 1}/${sr.games} started")
     }
 
+    private fun markAway(seat: Int) {
+        // Counted once per turn (on the roll), so a turn is not counted twice for its roll and its move.
+        if (session?.state?.phase != Phase.WaitingForRoll) return
+        if (++awayStreak[seat] >= 3 && !leftGame[seat]) { leftGame[seat] = true; log.info("seat $seat left the ranked game") }
+    }
+
     private fun command(c: Conn, m: Cmd, now: Long) {
         val s = session ?: return
         if (status != RoomStatus.Playing) return
         val seatIdx = s.state.current
         if (seats[seatIdx].userId != c.user.id) return c.send(ErrorMsg("It is not your turn."))
+        awayStreak[seatIdx] = 0
         val cmd = when (m.kind) {
             "roll" -> Command(m.id, lux.core.CommandType.Roll, seatIdx, expectedSequence = m.expected)
             "move" -> Command(m.id, lux.core.CommandType.Move, seatIdx, m.piece, m.expected)
@@ -257,14 +297,31 @@ class Room(
     // ---------------------------------------------------------------- keeping the game moving
 
     private fun tick(now: Long) {
+        // Ranked rooms start by themselves once everyone is connected (or after a short grace period).
+        if (ranked && status == RoomStatus.Lobby && (seats.all { connected(it.userId) } || now - created > 20_000)) {
+            series = Series(1, seats.map { SeriesSeat(it.color, false, 0, it.name) })
+            startGame(now)
+            return
+        }
         val s = session ?: return
         if (status != RoomStatus.Playing || now < busyUntil) return
+        // Ranked and everybody gone: no point playing it out. Rank by progress and rate it now.
+        if (ranked && leftGame.all { it }) {
+            val order = (0 until players).sortedByDescending { seat -> s.state.progress[seat].sum() }
+            val rank = IntArray(players).also { r -> order.forEachIndexed { i, seat -> r[seat] = i + 1 } }
+            rate(rank)
+            status = RoomStatus.Done
+            session = null
+            broadcastRoom()
+            log.info("ranked game abandoned by everyone")
+            return
+        }
         val idx = s.state.current
         val seat = seats[idx]
         val human = seat.userId != null && !seat.cpu
         when {
             !human -> cpuPlay(now, byCpu = false)
-            !connected(seat.userId) -> cpuPlay(now, byCpu = true)    // away: the computer keeps their place warm
+            !connected(seat.userId) -> { if (ranked) markAway(idx); cpuPlay(now, byCpu = true) }   // away: the computer keeps their place warm
             deadline == 0L -> {
                 deadline = now + cfg.turnSeconds * 1000L
                 broadcast(TurnTimer(seat.color, cfg.turnSeconds))
@@ -297,6 +354,13 @@ class Room(
         val sr = series!!
         val pieces = IntArray(s.seatCount) { seat -> s.progress[seat].count { it == Board.FINISH } }
         sr.record(s.rank.copyOf(), pieces)
+        if (ranked) {
+            rate(s.rank)
+            status = RoomStatus.Done
+            session = null
+            broadcastRoom()
+            return
+        }
         // Group standings use the plain per-game points (no final-game doubling), so every game counts the same.
         val results = seats.indices.filter { seats[it].userId != null && !seats[it].cpu }.map { i ->
             PlayerResult(seats[i].userId!!, s.rank[i], pieces[i], Series.placementPoints(s.seatCount, s.rank[i]) + pieces[i])
@@ -310,6 +374,37 @@ class Room(
         session = null
         broadcastRoom()
         log.info("game ${sr.gameIndex}/${sr.games} finished")
+    }
+
+    /**
+     * Ranked rating update. Anyone who left (away for 3 of their turns in a row) is placed below everyone who stayed,
+     * whatever the computer achieved for them.
+     */
+    private fun rate(rank: IntArray) {
+        val season = Seasons.current()
+        val ids = seats.map { it.userId!! }
+        val places = IntArray(players).also { p ->
+            val order = seats.indices.sortedWith(compareBy<Int> { leftGame[it] }.thenBy { rank[it] })
+            order.forEachIndexed { place, seat -> p[seat] = place + 1 }
+        }
+        val before = ids.map { store.ranked(it, season) }
+        val after = lux.core.Ranked.rate(before.map { it.rating }, places.toList(), before.map { it.games })
+        val changes = seats.indices.map { i ->
+            val old = before[i]
+            val rec = lux.core.Ranked.afterGame(old, after[i], won = places[i] == 1)
+            store.saveRanked(ids[i], rec)
+            val oldDiv = old.division; val newDiv = rec.division
+            lux.core.net.RankChange(
+                seats[i].color, ids[i], seats[i].name, places[i], lux.core.Ranked.change(old.rating, rec.rating),
+                oldDiv?.name ?: "Placement", newDiv?.name ?: "Placement",
+                promoted = newDiv != null && (oldDiv == null || newDiv.index > oldDiv.index),
+                demoted = newDiv != null && oldDiv != null && newDiv.index < oldDiv.index,
+                placement = if (rec.placed && old.placed) 0 else rec.games.coerceAtMost(lux.core.Ranked.PLACEMENT_GAMES),
+                left = leftGame[i],
+            )
+        }
+        broadcast(lux.core.net.RankedResult(changes))
+        log.info("ranked game rated: " + changes.joinToString { "${it.name} ${it.place} ${it.delta}" })
     }
 
     private fun paced(seconds: Double) = (seconds * 1000 * cfg.pace).toLong()

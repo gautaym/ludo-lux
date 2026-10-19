@@ -87,7 +87,7 @@ private val names = listOf("Red", "Green", "Yellow", "Blue")
 
 /** Screen frame for the online pages: the board's table behind, a back button and a title. */
 @Composable
-private fun OnlinePage(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
+fun OnlinePage(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
     val st = BoardStyles.get(LocalApp.current.settings.board)
     Box(Modifier.fillMaxSize()) {
         Canvas(Modifier.fillMaxSize()) { drawBackdrop(st, 0f) }
@@ -129,7 +129,7 @@ fun BigField(value: String, onChange: (String) -> Unit, placeholder: String, cod
 }
 
 @Composable
-private fun ErrorNote(text: String?) {
+fun ErrorNote(text: String?) {
     if (text == null) return
     Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color(0xCC7F1D1D)).padding(12.dp)) {
         Label(text, 16.sp, Color.White, align = TextAlign.Center, modifier = Modifier.fillMaxWidth())
@@ -157,23 +157,7 @@ fun FamilyHome(nav: Nav) {
 
     OnlinePage("Family online", { nav.screen = Screen.Menu }) {
         if (!net.signedIn) {
-            var name by remember { mutableStateOf(app.settings.name.takeIf { it != "You" } ?: "") }
-            Panel(Modifier.fillMaxWidth()) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Label("Play Ludo with your family, wherever they are.", 20.sp)
-                    Label("What should your family call you?", 16.sp, Palette.textDim)
-                    BigField(name, { name = it }, "Your name")
-                    BigButton(if (busy) "One moment..." else "Continue", {
-                        if (busy || Wire.cleanName(name).isEmpty()) return@BigButton
-                        busy = true
-                        scope.launch {
-                            try { net.signIn(Wire.cleanName(name)); app.settings.name = Wire.cleanName(name); error = null } catch (e: NetError) { error = e.message }
-                            busy = false
-                        }
-                    }, Modifier.fillMaxWidth(), 64.dp, Teal, TealDeep, TealInk, 26.sp)
-                }
-            }
-            ErrorNote(error)
+            NameStep("Play Ludo with your family, wherever they are.", "What should your family call you?")
         } else {
             Label("Hello, ${net.name}!", 22.sp, Color.White, display = true)
             val list = groups
@@ -219,6 +203,32 @@ fun FamilyHome(nav: Nav) {
             }, Modifier.fillMaxWidth(), 60.dp, Teal, TealDeep, TealInk, 24.sp)
         }
     }
+}
+
+/** First visit online: choose the name others will see (creates this phone's guest account). */
+@Composable
+fun NameStep(intro: String, ask: String) {
+    val app = LocalApp.current
+    val scope = rememberCoroutineScope()
+    var name by remember { mutableStateOf(app.settings.name.takeIf { it != "You" } ?: "") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    Panel(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Label(intro, 20.sp)
+            Label(ask, 16.sp, Palette.textDim)
+            BigField(name, { name = it }, "Your name")
+            BigButton(if (busy) "One moment..." else "Continue", {
+                if (busy || Wire.cleanName(name).isEmpty()) return@BigButton
+                busy = true
+                scope.launch {
+                    try { app.net.signIn(Wire.cleanName(name)); app.settings.name = Wire.cleanName(name); error = null } catch (e: NetError) { error = e.message }
+                    busy = false
+                }
+            }, Modifier.fillMaxWidth(), 64.dp, Teal, TealDeep, TealInk, 26.sp)
+        }
+    }
+    ErrorNote(error)
 }
 
 @Composable
@@ -381,7 +391,8 @@ fun RoomScreen(nav: Nav, code: String, groupId: String) {
     val link = remember(code) { RoomLink(app.net, code, scope) }
     var game by remember { mutableStateOf<OnlineGame?>(null) }
     var paused by remember { mutableStateOf(false) }
-    val leave = { link.stop(); nav.screen = Screen.Group(groupId) }
+    var rankedResult by remember { mutableStateOf<lux.core.net.RankedResult?>(null) }
+    val leave = { link.stop(); nav.screen = if (groupId.isEmpty()) Screen.Ranked else Screen.Group(groupId) }
     DisposableEffect(code) { link.start(); onDispose { link.stop() } }
     nav.onBack = { if (game != null && game?.director?.showResults == false) paused = !paused else leave() }
 
@@ -392,13 +403,14 @@ fun RoomScreen(nav: Nav, code: String, groupId: String) {
         while (true) {
             val m = pending ?: link.incoming.receive()
             pending = null
+            if (m is lux.core.net.RankedResult) { rankedResult = m; continue }
             val (index, stateText) = when (m) { is GameStarted -> m.game to m.state; is Snapshot -> m.game to m.state; else -> continue }
             val room = link.room ?: continue
             val style = BoardStyles.get(room.board)
             val stage = Stage(app, style)
             val director = MatchDirector(stage)
             val me = app.net.userId
-            val seats = room.seats.map { s -> SeatConfig(s.color, cpu = s.cpu, name = if (s.cpu) names[s.color] else s.name.ifEmpty { names[s.color] }) }
+            val seats = room.seats.map { s -> SeatConfig(s.color, cpu = s.cpu, name = if (s.cpu) names[s.color] else s.name.ifEmpty { names[s.color] }, badge = s.rank) }
             val local = room.seats.filter { it.userId == me }.map { it.color }.toSet()
             val series = Series.decode(room.series)
             director.softLastPlace = series != null && series.games > 1 && !series.isFinal(index)
@@ -426,7 +438,10 @@ fun RoomScreen(nav: Nav, code: String, groupId: String) {
                     endOverlay = {
                         val s = sr
                         val st = g.stage.style
-                        if (s != null && s.results.size > g.index && room.status != RoomStatus.Playing) {
+                        val rr = rankedResult
+                        if (room?.ranked == true) {
+                            if (rr != null) RankedResultOverlay(rr, st, app.net.userId, onAgain = { link.stop(); nav.screen = Screen.Ranked }, onDone = leave)
+                        } else if (s != null && s.results.size > g.index && room.status != RoomStatus.Playing) {
                             if (s.isOver) SeriesChampion(s, st, onNew = leave, onMenu = leave)
                             else SeriesScoreboard(s, s.results.last(), st, onNext = { link.send(NextGame) }, onMenu = leave)
                         }
@@ -435,6 +450,7 @@ fun RoomScreen(nav: Nav, code: String, groupId: String) {
                 if (!link.connected) ReconnectingBanner()
             }
         }
+        room?.ranked == true -> Box(Modifier.safeDrawingPadding()) { MatchFound(room, leave) }
         else -> Box(Modifier.safeDrawingPadding()) { Lobby(link, room, leave) }
     }
 }

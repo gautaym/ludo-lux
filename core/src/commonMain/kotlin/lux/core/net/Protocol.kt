@@ -75,6 +75,39 @@ data class CreateRoomRequest(
 
 @Serializable data class ErrorResponse(val error: String)
 
+// ---------------------------------------------------------------- ranked
+
+/** My ranked standing this season. The skill rating itself stays hidden; only the tier and progress are shown. */
+@Serializable
+data class RankedProfile(
+    val season: String,
+    val seasonDaysLeft: Int,
+    val placed: Boolean,
+    val placementPlayed: Int,
+    val placementGames: Int,
+    /** e.g. "Gold II" (empty during placement). */
+    val division: String,
+    /** 0 Bronze .. 5 Champion, and the step 3/2/1 (0 for Champion). */
+    val tier: Int,
+    val step: Int,
+    /** 0..1 through the current step. */
+    val progress: Float,
+    val shield: Int,
+    val games: Int,
+    val wins: Int,
+    val peak: String,
+    /** Place on the season leaderboard (0 while in placement). */
+    val position: Int,
+)
+
+@Serializable data class LeaderRow(val place: Int, val name: String, val division: String, val tier: Int, val wins: Int, val games: Int, val me: Boolean)
+@Serializable data class Leaderboard(val season: String, val rows: List<LeaderRow>, val mine: LeaderRow? = null)
+
+@Serializable data class QueueRequest(val players: Int)
+@Serializable enum class QueueState { Waiting, Matched, None }
+/** Matchmaking ticket. Poll it while waiting; once [state] is Matched, open [room]. */
+@Serializable data class QueueStatus(val state: QueueState, val players: Int = 0, val waited: Int = 0, val inQueue: Int = 0, val room: String = "")
+
 // ---------------------------------------------------------------- rooms
 
 @Serializable
@@ -88,6 +121,8 @@ data class SeatInfo(
     val name: String = "",
     val cpu: Boolean = false,
     val connected: Boolean = false,
+    /** Ranked rooms: the player's visible rank (e.g. "Gold II", or "Placement"). */
+    val rank: String = "",
 )
 
 @Serializable
@@ -104,6 +139,7 @@ data class RoomInfo(
     /** The series so far ([lux.core.Series.encode]), or "" before the first game. */
     val series: String = "",
     val link: String = "",
+    val ranked: Boolean = false,
 )
 
 // ---------------------------------------------------------------- live play (WebSocket)
@@ -142,6 +178,27 @@ sealed interface ServerMsg
 /** The player whose turn it is has until [seconds] from now before the computer plays for them. */
 @Serializable @SerialName("timer") data class TurnTimer(val color: Int, val seconds: Int) : ServerMsg
 @Serializable @SerialName("error") data class ErrorMsg(val message: String) : ServerMsg
+
+/** One player's ranked result. */
+@Serializable
+data class RankChange(
+    val color: Int,
+    val userId: String,
+    val name: String,
+    val place: Int,
+    /** Rating change, rounded (shown as +18 / -9). */
+    val delta: Int,
+    val before: String,
+    val after: String,
+    val promoted: Boolean,
+    val demoted: Boolean,
+    /** Placement games played, if still in placement (0 otherwise). */
+    val placement: Int,
+    val left: Boolean,
+)
+
+/** After a ranked game: everyone's rating changes, tier moves and placement progress. */
+@Serializable @SerialName("ranked") data class RankedResult(val changes: List<RankChange>) : ServerMsg
 @Serializable @SerialName("pong") data object Pong : ServerMsg
 
 /** Game states travel as Base64 of the compact binary snapshot ([lux.core.GameState.serialize]). */

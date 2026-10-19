@@ -16,6 +16,7 @@ import io.ktor.server.request.header
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
+import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.put
@@ -83,7 +84,9 @@ fun Application.luxServer(store: Store, cfg: Config) {
     val rooms = Rooms(store, cfg, scope)
     val guestLimit = Limiter(20, 3_600_000)
     val joinLimit = Limiter(30, 600_000)
+    val matchmaker = Matchmaker(store, rooms)
     scope.launch { while (true) { delay(60_000); rooms.sweep() } }
+    scope.launch { while (true) { delay(1_000); runCatching { matchmaker.match() }.onFailure { log.error("matchmaking", it) } } }
 
     install(ContentNegotiation) { json(Wire.json) }
     install(CallLogging)
@@ -175,6 +178,37 @@ fun Application.luxServer(store: Store, cfg: Config) {
             call.respond(room.snapshotInfo())
         }
 
+        // ---- ranked (separate from family groups)
+        get("/v1/ranked/me") {
+            val u = call.user()
+            val season = Seasons.current()
+            val r = store.ranked(u.id, season)
+            val d = r.division
+            call.respond(lux.core.net.RankedProfile(
+                season, Seasons.daysLeft(), r.placed, r.games.coerceAtMost(lux.core.Ranked.PLACEMENT_GAMES), lux.core.Ranked.PLACEMENT_GAMES,
+                d?.name ?: "", d?.tier ?: 0, d?.step ?: 0, r.progress, r.shield, r.games, r.wins,
+                if (r.peak > 0 || r.placed) lux.core.Ranked.Division.ofIndex(r.peak).name else "",
+                if (r.placed) store.rankedPosition(season, r.rating) else 0,
+            ))
+        }
+        get("/v1/ranked/leaderboard") {
+            val u = call.user()
+            val season = Seasons.current()
+            val top = store.leaderboard(season, 50)
+            val rows = top.mapIndexed { i, (id, name, r) -> lux.core.net.LeaderRow(i + 1, name, r.division!!.name, r.division!!.tier, r.wins, r.games, id == u.id) }
+            val me = store.ranked(u.id, season)
+            val mine = if (me.placed && rows.none { it.me }) lux.core.net.LeaderRow(store.rankedPosition(season, me.rating), u.name, me.division!!.name, me.division!!.tier, me.wins, me.games, true) else null
+            call.respond(lux.core.net.Leaderboard(season, rows, mine))
+        }
+        post("/v1/ranked/queue") {
+            val u = call.user()
+            val req = call.receive<lux.core.net.QueueRequest>()
+            if (req.players != 2 && req.players != 4) throw HttpError(HttpStatusCode.BadRequest, "Ranked games are for 2 or 4 players.")
+            call.respond(matchmaker.join(u, req.players))
+        }
+        get("/v1/ranked/queue") { call.respond(matchmaker.status(call.user())) }
+        delete("/v1/ranked/queue") { val u = call.user(); matchmaker.leave(u); call.respond(lux.core.net.QueueStatus(lux.core.net.QueueState.None)) }
+
         // ---- invite links (WhatsApp etc.): a simple page with the code until app links are set up
         get("/g/{code}") { call.invitePage("Join the family group on Ludo Lux", Wire.cleanCode(call.parameters["code"]!!)) }
         get("/r/{code}") { call.invitePage("Join the game on Ludo Lux", Wire.cleanCode(call.parameters["code"]!!)) }
@@ -189,7 +223,9 @@ fun Application.luxServer(store: Store, cfg: Config) {
                 ?.let { runCatching { Wire.json.decodeFromString(ClientMsg.serializer(), it) }.getOrNull() } as? Hello
             val user = hello?.let { store.userByToken(it.token) }
             val room = hello?.let { rooms.get(Wire.cleanCode(it.room)) }
-            if (user == null || room == null || !store.isMember(room.groupId, user.id)) {
+            // Family rooms: any member of the group. Ranked rooms: only the matched players.
+            val allowed = user != null && room != null && (if (room.ranked) room.seated(user.id) else store.isMember(room.groupId, user.id))
+            if (user == null || room == null || !allowed) {
                 reply(ErrorMsg(if (room == null) "That game has ended." else "Not allowed."))
                 out.close(); writer.join()
                 return@webSocket

@@ -7,6 +7,7 @@ import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
+import io.ktor.client.request.delete
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
@@ -71,7 +72,7 @@ class ServerTest {
      * A bot player: joins the room, plays its own turns with the CPU logic, optionally starts the game (host) and
      * optionally hangs up after [quitAfter] results. Returns the last room info it saw.
      */
-    private suspend fun HttpClient.bot(me: AuthResponse, room: String, host: Boolean, quitAfter: Int = Int.MAX_VALUE, log: MutableList<String>? = null): RoomInfo {
+    private suspend fun HttpClient.bot(me: AuthResponse, room: String, host: Boolean, quitAfter: Int = Int.MAX_VALUE, log: MutableList<String>? = null, ranked: MutableList<lux.core.net.RankedResult>? = null): RoomInfo {
         var info: RoomInfo? = null
         webSocket("/v1/play") {
             fun enc(m: ClientMsg) = Frame.Text(Wire.json.encodeToString(ClientMsg.serializer(), m))
@@ -100,6 +101,8 @@ class ServerTest {
                     }
                     is GameStarted -> { log?.add("start"); act(StateCodec.decode(m.state)) }
                     is Snapshot -> { log?.add("snapshot"); act(StateCodec.decode(m.state)) }
+                    is lux.core.net.RankedResult -> ranked?.add(m)
+                    is lux.core.net.ErrorMsg -> { log?.add("error: ${m.message}"); if (info == null) return@webSocket }
                     is ResultMsg -> {
                         if (m.byCpu) log?.add("cpu-for-someone")
                         if (++results >= quitAfter) return@webSocket
@@ -109,7 +112,16 @@ class ServerTest {
                 }
             }
         }
-        return info!!
+        return info ?: RoomInfo("", "", "", 0, 0, "", 0, RoomStatus.Done, emptyList())
+    }
+
+    private suspend fun HttpClient.queueUntilMatched(me: AuthResponse, players: Int): String {
+        var st: lux.core.net.QueueStatus = postAs(me.token, "/v1/ranked/queue", lux.core.net.QueueRequest(players))
+        while (st.state != lux.core.net.QueueState.Matched) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { kotlinx.coroutines.delay(20) }
+            st = get("/v1/ranked/queue") { bearerAuth(me.token) }.body()
+        }
+        return st.room
     }
 
     @Test fun twoFamilyMembersAndAComputerPlayASeriesToTheEnd() = withServer { http ->
@@ -189,5 +201,70 @@ class ServerTest {
         // The invite page shows only the cleaned code.
         val page = http.get("/g/<script>${g1.code}").body<String>()
         assertTrue("<script>" !in page)
+    }
+
+    @Test fun rankedPlayersAreMatchedPlayedAndRated() = withServer { http ->
+        val a = http.guest("Asha")
+        val b = http.guest("Bina")
+        val results = java.util.Collections.synchronizedList(mutableListOf<lux.core.net.RankedResult>())
+        withTimeout(60_000) {
+            coroutineScope {
+                val ra = async { http.queueUntilMatched(a, 2) }
+                val rb = async { http.queueUntilMatched(b, 2) }
+                val room = ra.await()
+                assertEquals(room, rb.await(), "both matched into the same room")
+                val x = async { http.bot(a, room, host = false, ranked = results) }
+                val y = async { http.bot(b, room, host = false, ranked = results) }
+                x.await(); y.await()
+            }
+        }
+        val r = results.first()
+        assertEquals(2, r.changes.size)
+        val winner = r.changes.single { it.place == 1 }
+        assertTrue(winner.delta > 0 && r.changes.single { it.place == 2 }.delta < 0)
+        assertTrue(kotlin.math.abs(r.changes.sumOf { it.delta }) <= 1, "what one gains the other loses (within rounding)")
+        assertTrue(r.changes.all { it.placement == 1 && it.after == "Placement" }, "first ranked game is placement 1 of 10")
+        val me: lux.core.net.RankedProfile = http.get("/v1/ranked/me") { bearerAuth(a.token) }.body()
+        assertEquals(1, me.games); assertEquals(1, me.placementPlayed); assertTrue(!me.placed)
+        // Ranked rooms never show up in family groups, and ranked play never touches group standings.
+        val board: lux.core.net.Leaderboard = http.get("/v1/ranked/leaderboard") { bearerAuth(a.token) }.body()
+        assertTrue(board.rows.isEmpty(), "nobody is on the leaderboard until placement is done")
+    }
+
+    @Test fun aLonePlayerWaitsAndCanCancel() = withServer { http ->
+        val a = http.guest("Asha")
+        val st: lux.core.net.QueueStatus = http.postAs(a.token, "/v1/ranked/queue", lux.core.net.QueueRequest(4))
+        assertEquals(lux.core.net.QueueState.Waiting, st.state)
+        assertEquals(1, st.inQueue)
+        val gone = http.delete("/v1/ranked/queue") { bearerAuth(a.token) }.body<lux.core.net.QueueStatus>()
+        assertEquals(lux.core.net.QueueState.None, gone.state)
+        assertEquals(HttpStatusCode.BadRequest, http.post("/v1/ranked/queue") { bearerAuth(a.token); contentType(ContentType.Application.Json); setBody(lux.core.net.QueueRequest(3)) }.status)
+    }
+
+    @Test fun aRankedLeaverIsPlacedLastAndOutsidersCannotJoin() = withServer { http ->
+        val a = http.guest("Asha")
+        val b = http.guest("Bina")
+        val c = http.guest("Chetan")
+        val results = java.util.Collections.synchronizedList(mutableListOf<lux.core.net.RankedResult>())
+        val log = java.util.Collections.synchronizedList(mutableListOf<String>())
+        withTimeout(60_000) {
+            coroutineScope {
+                val ra = async { http.queueUntilMatched(a, 2) }
+                val rb = async { http.queueUntilMatched(b, 2) }
+                val room = ra.await(); rb.await()
+                // Chetan was not matched into this room: he is turned away.
+                http.bot(c, room, host = false, log = log)
+                assertTrue(log.any { it.startsWith("error") }, "outsider refused: $log")
+                val x = async { http.bot(a, room, host = false, ranked = results) }
+                // Bina leaves after two moves and never comes back.
+                val y = async { http.bot(b, room, host = false, quitAfter = 2) }
+                y.await(); x.await()
+            }
+        }
+        val r = results.first()
+        val bina = r.changes.single { it.name == "Bina" }
+        assertTrue(bina.left, "Bina is marked as having left")
+        assertEquals(2, bina.place, "a leaver is placed last")
+        assertTrue(bina.delta < 0)
     }
 }
