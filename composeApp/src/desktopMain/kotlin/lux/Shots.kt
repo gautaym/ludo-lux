@@ -179,6 +179,12 @@ fun main(args: Array<String>) {
             ProvideLux(AppContext(SilentPlatform)) { lux.ui.RankedResultOverlay(r, BoardStyles.royal, "me", {}, {}) }
         }
     }
+    if ("signin" in want) {
+        record("signin", 1.2f, 1f, listOf(1.1f)) { LuxApp(AppContext(TestPlatform()), Nav().apply { screen = Screen.Family }) }
+        // A guest (no server running, so the group list shows the connection note) sees the save banner.
+        val guest = TestPlatform().also { it.prefs.putString("token", "t"); it.prefs.putString("onlineName", "Mom"); it.prefs.putInt("onlineTag", 4821) }
+        record("signin_guest", 3f, 1f, listOf(2.9f)) { LuxApp(AppContext(guest).also { it.net.changeServer("http://127.0.0.1:9") }, Nav().apply { screen = Screen.Family }) }
+    }
     if ("showcase" in want) {
         val app = AppContext(SilentPlatform)
         val nav = Nav().apply { screen = Screen.Showcase }

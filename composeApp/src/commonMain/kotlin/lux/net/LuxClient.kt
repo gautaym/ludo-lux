@@ -63,6 +63,12 @@ class LuxClient(private val prefs: Prefs) {
         private set
     var name by mutableStateOf(prefs.getString("onlineName", ""))
         private set
+    /** Random 4-digit tag shown after the name ("Ravi #4821"). */
+    var tag by mutableStateOf(prefs.getInt("onlineTag", 0))
+        private set
+    /** True once the account is saved with Google (it then works on any phone). */
+    var google by mutableStateOf(prefs.getInt("onlineGoogle", 0) == 1)
+        private set
     val signedIn get() = token.isNotEmpty()
 
     val http = HttpClient {
@@ -91,11 +97,28 @@ class LuxClient(private val prefs: Prefs) {
         return r.body()
     }
 
+    private fun keep(a: AuthResponse) {
+        token = a.token; userId = a.userId; name = a.name; tag = a.tag; google = a.google
+        prefs.putString("token", a.token); prefs.putString("userId", a.userId); prefs.putString("onlineName", a.name)
+        prefs.putInt("onlineTag", a.tag); prefs.putInt("onlineGoogle", if (a.google) 1 else 0)
+    }
+
     /** Creates this phone's guest account (once). */
     suspend fun signIn(displayName: String) {
-        val a: AuthResponse = call { http.post(url("/v1/auth/guest")) { contentType(ContentType.Application.Json); setBody(GuestRequest(displayName)) } }
-        token = a.token; userId = a.userId; name = a.name
-        prefs.putString("token", a.token); prefs.putString("userId", a.userId); prefs.putString("onlineName", a.name)
+        keep(call { http.post(url("/v1/auth/guest")) { contentType(ContentType.Application.Json); setBody(GuestRequest(displayName)) } })
+    }
+
+    /**
+     * Signs in with a Google ID token. Sends this phone's guest token too (if any), so the guest account is upgraded
+     * and keeps its groups and rank; on a new phone it simply returns to the same account.
+     */
+    suspend fun signInWithGoogle(idToken: String) {
+        keep(call {
+            http.post(url("/v1/auth/google")) {
+                if (token.isNotEmpty()) bearerAuth(token)
+                contentType(ContentType.Application.Json); setBody(lux.core.net.GoogleSignInRequest(idToken))
+            }
+        })
     }
 
     suspend fun groups(): List<GroupSummary> = call { http.get(url("/v1/groups")) { bearerAuth(token) } }

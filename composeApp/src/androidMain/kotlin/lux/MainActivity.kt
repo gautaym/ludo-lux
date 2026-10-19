@@ -111,5 +111,25 @@ class AndroidPlatform(context: Context, private val activity: android.app.Activi
         if (!ok) runCatching { activity.startActivity(android.content.Intent.createChooser(send, "Share invite")) }
     }
 
+    override suspend fun googleIdToken(): String? {
+        val clientId = activity.getString(lux.app.R.string.google_web_client_id)
+        if (clientId.isBlank()) throw lux.net.NetError("Google sign-in is not set up in this test version yet. Use \"Play as guest\" for now.")
+        val option = com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption.Builder(clientId).build()
+        val request = androidx.credentials.GetCredentialRequest.Builder().addCredentialOption(option).build()
+        return try {
+            val res = androidx.credentials.CredentialManager.create(activity).getCredential(activity, request)
+            val c = res.credential
+            if (c is androidx.credentials.CustomCredential && c.type == com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL)
+                com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.createFrom(c.data).idToken
+            else throw lux.net.NetError("Google sign-in did not work. Please try again.")
+        } catch (e: androidx.credentials.exceptions.GetCredentialCancellationException) {
+            null
+        } catch (e: androidx.credentials.exceptions.NoCredentialException) {
+            throw lux.net.NetError("No Google account on this phone. Add one in the phone's Settings, or play as a guest.")
+        } catch (e: androidx.credentials.exceptions.GetCredentialException) {
+            throw lux.net.NetError("Google sign-in did not work. Please try again.")
+        }
+    }
+
     fun release() = pool.release()
 }

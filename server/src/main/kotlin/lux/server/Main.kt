@@ -41,6 +41,7 @@ import lux.core.net.ErrorMsg
 import lux.core.net.ErrorResponse
 import lux.core.net.GroupDetail
 import lux.core.net.GroupSummary
+import lux.core.net.GoogleSignInRequest
 import lux.core.net.GuestRequest
 import lux.core.net.Hello
 import lux.core.net.JoinGroupRequest
@@ -63,7 +64,9 @@ fun main() {
         turnSeconds = env["TURN_SECONDS"]?.toIntOrNull() ?: 45,
     )
     val store = Store(env["DB_PATH"] ?: "ludolux.db")
-    embeddedServer(CIO, port = port, host = "0.0.0.0") { luxServer(store, cfg) }.start(wait = true)
+    // GOOGLE_CLIENT_IDS: comma-separated OAuth client ids whose sign-in tokens we accept (the app's web client id).
+    val google = GoogleVerifier(env["GOOGLE_CLIENT_IDS"].orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet())
+    embeddedServer(CIO, port = port, host = "0.0.0.0") { luxServer(store, cfg, google) }.start(wait = true)
 }
 
 class HttpError(val status: HttpStatusCode, message: String) : Exception(message)
@@ -78,7 +81,7 @@ class Limiter(private val max: Int, private val windowMs: Long) {
     }
 }
 
-fun Application.luxServer(store: Store, cfg: Config) {
+fun Application.luxServer(store: Store, cfg: Config, google: TokenVerifier = TokenVerifier { null }) {
     val log = LoggerFactory.getLogger("lux")
     val scope = CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
     val rooms = Rooms(store, cfg, scope)
@@ -121,14 +124,32 @@ fun Application.luxServer(store: Store, cfg: Config) {
             if (!guestLimit.allow(call.request.origin.remoteHost)) throw HttpError(HttpStatusCode.TooManyRequests, "Too many new accounts. Try again later.")
             val req = call.receive<GuestRequest>()
             val (user, token) = store.createGuest(name(req.name))
-            call.respond(AuthResponse(user.id, token, user.name))
+            call.respond(AuthResponse(user.id, token, user.name, user.tag))
         }
-        get("/v1/me") { val u = call.user(); call.respond(AuthResponse(u.id, "", u.name)) }
+        /**
+         * Sign in with Google: the same Google account is the same Ludo Lux account on every phone. If this phone
+         * already has a guest account (its token comes along), that guest account is upgraded and keeps everything.
+         */
+        post("/v1/auth/google") {
+            if (!guestLimit.allow("g:" + call.request.origin.remoteHost)) throw HttpError(HttpStatusCode.TooManyRequests, "Too many tries. Try again later.")
+            val id = google.verify(call.receive<GoogleSignInRequest>().idToken) ?: throw HttpError(HttpStatusCode.Unauthorized, "Google sign-in did not work. Please try again.")
+            val current = call.request.header("Authorization")?.removePrefix("Bearer ")?.trim()?.let { store.userByToken(it) }
+            val known = store.userByGoogle(id.sub)
+            val user: User
+            val token: String
+            when {
+                known != null -> { user = known; token = store.newSession(known.id) }              // returning player, maybe on a new phone
+                current != null -> { store.linkGoogle(current.id, id.sub); user = current.copy(google = true); token = store.newSession(current.id) }  // save the guest
+                else -> { val made = store.createUser(Wire.cleanName(id.name).ifEmpty { "Player" }, id.sub); user = made.first; token = made.second }
+            }
+            call.respond(AuthResponse(user.id, token, user.name, user.tag, true))
+        }
+        get("/v1/me") { val u = call.user(); call.respond(AuthResponse(u.id, "", u.name, u.tag, u.google)) }
         put("/v1/me") {
             val u = call.user()
             val n = name(call.receive<RenameRequest>().name)
             store.rename(u.id, n)
-            call.respond(AuthResponse(u.id, "", n))
+            call.respond(AuthResponse(u.id, "", n, u.tag, u.google))
         }
 
         // ---- family groups (a person can be in any number of them)
@@ -195,9 +216,9 @@ fun Application.luxServer(store: Store, cfg: Config) {
             val u = call.user()
             val season = Seasons.current()
             val top = store.leaderboard(season, 50)
-            val rows = top.mapIndexed { i, (id, name, r) -> lux.core.net.LeaderRow(i + 1, name, r.division!!.name, r.division!!.tier, r.wins, r.games, id == u.id) }
+            val rows = top.mapIndexed { i, (id, name, r) -> lux.core.net.LeaderRow(i + 1, name, r.division!!.name, r.division!!.tier, r.wins, r.games, id == u.id, store.tagOf(id)) }
             val me = store.ranked(u.id, season)
-            val mine = if (me.placed && rows.none { it.me }) lux.core.net.LeaderRow(store.rankedPosition(season, me.rating), u.name, me.division!!.name, me.division!!.tier, me.wins, me.games, true) else null
+            val mine = if (me.placed && rows.none { it.me }) lux.core.net.LeaderRow(store.rankedPosition(season, me.rating), u.name, me.division!!.name, me.division!!.tier, me.wins, me.games, true, u.tag) else null
             call.respond(lux.core.net.Leaderboard(season, rows, mine))
         }
         post("/v1/ranked/queue") {

@@ -29,7 +29,13 @@ object Wire {
 // ---------------------------------------------------------------- REST
 
 @Serializable data class GuestRequest(val name: String)
-@Serializable data class AuthResponse(val userId: String, val token: String, val name: String)
+/**
+ * [tag] is a random 4-digit number shown after the name ("Ravi #4821") so people with the same name can be told apart.
+ * [google] is true once the account is saved with Google (then it works on any phone).
+ */
+@Serializable data class AuthResponse(val userId: String, val token: String, val name: String, val tag: Int = 0, val google: Boolean = false)
+/** Sign in with Google. Sent with the current guest token (if any) so the guest account is kept and upgraded. */
+@Serializable data class GoogleSignInRequest(val idToken: String)
 @Serializable data class RenameRequest(val name: String)
 
 @Serializable data class CreateGroupRequest(val name: String)
@@ -51,6 +57,7 @@ data class MemberStanding(
     val monthPoints: Int,
     val monthGames: Int,
     val owner: Boolean = false,
+    val tag: Int = 0,
 )
 
 @Serializable
@@ -100,7 +107,7 @@ data class RankedProfile(
     val position: Int,
 )
 
-@Serializable data class LeaderRow(val place: Int, val name: String, val division: String, val tier: Int, val wins: Int, val games: Int, val me: Boolean)
+@Serializable data class LeaderRow(val place: Int, val name: String, val division: String, val tier: Int, val wins: Int, val games: Int, val me: Boolean, val tag: Int = 0)
 @Serializable data class Leaderboard(val season: String, val rows: List<LeaderRow>, val mine: LeaderRow? = null)
 
 @Serializable data class QueueRequest(val players: Int)

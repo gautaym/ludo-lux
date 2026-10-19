@@ -33,6 +33,9 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.androidx.activity.compose)
             implementation(libs.ktor.client.okhttp)
+            implementation(libs.androidx.credentials)
+            implementation(libs.androidx.credentials.play)
+            implementation(libs.googleid)
         }
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)
@@ -51,6 +54,9 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.2.0"
+        // Google sign-in: the OAuth *web* client id from Google Cloud Console (public, not a secret).
+        // Set googleWebClientId=... in gradle.properties (or ~/.gradle/gradle.properties).
+        resValue("string", "google_web_client_id", (project.findProperty("googleWebClientId") as String?) ?: "")
     }
     buildTypes {
         getByName("release") {

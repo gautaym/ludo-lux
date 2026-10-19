@@ -159,7 +159,10 @@ fun FamilyHome(nav: Nav) {
         if (!net.signedIn) {
             NameStep("Play Ludo with your family, wherever they are.", "What should your family call you?")
         } else {
-            Label("Hello, ${net.name}!", 22.sp, Color.White, display = true)
+            Row(verticalAlignment = Alignment.Bottom) {
+                Label("Hello, ${net.name}!", 22.sp, Color.White, display = true)
+                if (net.tag > 0) Label("  #${net.tag}", 15.sp, Palette.textDim)
+            }
             val list = groups
             when {
                 list == null && error == null -> Label("Loading your groups...", 18.sp, Palette.textDim)
@@ -169,6 +172,7 @@ fun FamilyHome(nav: Nav) {
                 list != null -> for (g in list) GroupCard(g) { nav.screen = Screen.Group(g.id) }
             }
             ErrorNote(error)
+            SaveAccountBanner()
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 BigButton("Create group", { dialog = "create" }, Modifier.weight(1f), 60.dp, Teal, TealDeep, TealInk, 21.sp)
                 BigButton("Join with code", { dialog = "join" }, Modifier.weight(1f), 60.dp, textSize = 21.sp)
@@ -205,7 +209,10 @@ fun FamilyHome(nav: Nav) {
     }
 }
 
-/** First visit online: choose the name others will see (creates this phone's guest account). */
+/**
+ * First visit online. "Continue with Google" is the main way in: one tap, works in every country, and the same
+ * account comes back on any phone. Playing as a guest stays possible (and can be saved with Google later).
+ */
 @Composable
 fun NameStep(intro: String, ask: String) {
     val app = LocalApp.current
@@ -213,9 +220,27 @@ fun NameStep(intro: String, ask: String) {
     var name by remember { mutableStateOf(app.settings.name.takeIf { it != "You" } ?: "") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var asGuest by remember { mutableStateOf(false) }
     Panel(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Label(intro, 20.sp)
+            if (!asGuest) {
+                GoogleButton(busy) {
+                    busy = true
+                    scope.launch {
+                        try {
+                            val idToken = app.platform.googleIdToken()
+                            if (idToken != null) { app.net.signInWithGoogle(idToken); app.settings.name = app.net.name }
+                            error = null
+                        } catch (e: NetError) { error = e.message }
+                        busy = false
+                    }
+                }
+                Label("Keeps your groups and rank on any phone.", 14.sp, Palette.textDim, align = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                val click = tap { asGuest = true }
+                Label("Play as guest instead", 17.sp, Palette.gold, align = TextAlign.Center, modifier = Modifier.fillMaxWidth().clickable(onClick = click).padding(6.dp))
+                return@Column
+            }
             Label(ask, 16.sp, Palette.textDim)
             BigField(name, { name = it }, "Your name")
             BigButton(if (busy) "One moment..." else "Continue", {
@@ -226,6 +251,55 @@ fun NameStep(intro: String, ask: String) {
                     busy = false
                 }
             }, Modifier.fillMaxWidth(), 64.dp, Teal, TealDeep, TealInk, 26.sp)
+        }
+    }
+    ErrorNote(error)
+}
+
+/** The standard-looking white "Continue with Google" button, with the four-colour G drawn in code. */
+@Composable
+fun GoogleButton(busy: Boolean, onClick: () -> Unit) {
+    val click = tap { if (!busy) onClick() }
+    Row(
+        Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(32.dp)).background(Color.White)
+            .border(1.dp, Color(0xFFDADCE0), RoundedCornerShape(32.dp)).clickable(onClick = click).padding(horizontal = 20.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
+    ) {
+        Canvas(Modifier.size(28.dp)) {
+            val stroke = Stroke(size.width * 0.2f)
+            val inset = size.width * 0.1f
+            val arc = androidx.compose.ui.geometry.Size(size.width - 2 * inset, size.height - 2 * inset)
+            val tl = Offset(inset, inset)
+            drawArc(Color(0xFFEA4335), 200f, 110f, false, tl, arc, style = stroke)
+            drawArc(Color(0xFFFBBC05), 135f, 65f, false, tl, arc, style = stroke)
+            drawArc(Color(0xFF34A853), 45f, 90f, false, tl, arc, style = stroke)
+            drawArc(Color(0xFF4285F4), -15f, 60f, false, tl, arc, style = stroke)
+            drawLine(Color(0xFF4285F4), Offset(size.width * 0.52f, size.height * 0.5f), Offset(size.width - inset * 0.4f, size.height * 0.5f), size.width * 0.2f)
+        }
+        Spacer(Modifier.width(14.dp))
+        Label(if (busy) "One moment..." else "Continue with Google", 22.sp, Color(0xFF1F1F1F), weight = androidx.compose.ui.text.font.FontWeight.Bold)
+    }
+}
+
+/** For guests: one tap to keep the account for good (works on any phone afterwards). */
+@Composable
+fun SaveAccountBanner() {
+    val app = LocalApp.current
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    if (!app.net.signedIn || app.net.google) return
+    Panel(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Label("Save your account", 20.sp, Color.White, display = true)
+            Label("You are playing as a guest. Save with Google so your groups and rank are never lost, even on a new phone.", 14.sp, Palette.textDim)
+            GoogleButton(busy) {
+                busy = true
+                scope.launch {
+                    try { app.platform.googleIdToken()?.let { app.net.signInWithGoogle(it) }; error = null } catch (e: NetError) { error = e.message }
+                    busy = false
+                }
+            }
         }
     }
     ErrorNote(error)
@@ -351,7 +425,10 @@ private fun StandingRow(place: Int, m: MemberStanding, month: Boolean, me: Boole
         }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Label(m.name + if (me) " (you)" else "", 20.sp, Color.White, display = true)
+            Row(verticalAlignment = Alignment.Bottom) {
+                Label(m.name + if (me) " (you)" else "", 20.sp, Color.White, display = true)
+                if (m.tag > 0) Label(" #${m.tag}", 12.sp, Palette.textDim)
+            }
             Label(if (month) "${m.monthGames} games this month" else "${m.games} games  ·  ${m.wins} wins  ·  ${m.seriesWon} series", 13.sp, Palette.textDim)
         }
         Label("${if (month) m.monthPoints else m.points}", 26.sp, Palette.gold, display = true)

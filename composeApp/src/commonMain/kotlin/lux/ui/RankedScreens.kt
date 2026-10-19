@@ -193,6 +193,7 @@ fun RankedScreen(nav: Nav) {
     OnlinePage("Ranked", { nav.onBack?.invoke() }) {
         if (!net.signedIn) { NameStep("Ranked games against players of your level.", "What name should other players see?"); return@OnlinePage }
         ErrorNote(error)
+        SaveAccountBanner()
         val p = me
         Panel(Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -256,7 +257,10 @@ private fun LeaderRowView(r: LeaderRow) {
         TierEmblem(r.division, 32)
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f)) {
-            Label(r.name + if (r.me) " (you)" else "", 18.sp, Color.White, display = true)
+            Row(verticalAlignment = Alignment.Bottom) {
+                Label(r.name + if (r.me) " (you)" else "", 18.sp, Color.White, display = true)
+                if (r.tag > 0) Label(" #${r.tag}", 12.sp, Palette.textDim)
+            }
             Label("${r.division}  ·  ${r.wins} wins", 12.sp, Palette.textDim)
         }
     }

@@ -26,6 +26,11 @@ interface Platform {
     fun vibrate(strength: Haptic)
     /** Shares text (WhatsApp first if it is installed, otherwise the system share sheet). */
     fun share(text: String) {}
+    /**
+     * Shows the system "Sign in with Google" sheet and returns a Google ID token, or null if the person cancelled.
+     * Throws [lux.net.NetError] with a friendly message if sign-in is not available.
+     */
+    suspend fun googleIdToken(): String? = throw lux.net.NetError("Google sign-in is not available here.")
 }
 
 /** Used by previews and screenshots: silent, and remembers settings only in memory. */
