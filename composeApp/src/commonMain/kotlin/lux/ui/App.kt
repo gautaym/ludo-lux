@@ -44,6 +44,8 @@ fun seatsFromSettings(app: AppContext): List<SeatConfig> {
 
 @Composable
 fun LuxApp(app: AppContext, nav: Nav) {
+    // Ads for this area (pictures only), fetched quietly in the background; none when offline.
+    LaunchedEffect(Unit) { app.ads.refresh() }
     ProvideLux(app) {
         Box(Modifier.fillMaxSize().background(Color(0xFF06161B))) {
             AnimatedContent(nav.screen, transitionSpec = { fadeIn() togetherWith fadeOut() }) { screen ->
@@ -58,6 +60,7 @@ fun LuxApp(app: AppContext, nav: Nav) {
                                 onFamily = { nav.screen = Screen.Family },
                                 onRanked = { nav.screen = Screen.Ranked },
                                 onShop = { nav.screen = Screen.Shop },
+                                onAdvertise = { nav.screen = Screen.Advertise },
                             )
                         }
                         Screen.Match -> key(nav.matchKey) { MatchHost(app, nav, showcase = false) }
@@ -67,6 +70,7 @@ fun LuxApp(app: AppContext, nav: Nav) {
                         is Screen.Room -> RoomScreen(nav, screen.code, screen.groupId)
                         Screen.Ranked -> Box(Modifier.safeDrawingPadding()) { RankedScreen(nav) }
                         Screen.Shop -> Box(Modifier.safeDrawingPadding()) { ShopScreen(nav) }
+                        Screen.Advertise -> Box(Modifier.safeDrawingPadding()) { AdvertiseScreen(nav) }
                     }
                 }
             }
@@ -90,8 +94,11 @@ private fun MatchHost(app: AppContext, nav: Nav, showcase: Boolean) {
     val stage = remember(round) { Stage(app, style) }
     val director = remember(round) { MatchDirector(stage) }
     var paused by remember(round) { mutableStateOf(false) }
+    /** Between games of a series: a short "TV break" card (when there is one for this area). */
+    var breakAd by remember { mutableStateOf(false) }
     StageClock(stage)
     LaunchedEffect(round) {
+        if (series != null) app.ads.refreshSoon()
         if (series == null) { director.runShowcase { nav.screen = Screen.Menu }; return@LaunchedEffect }
         last = null
         val game = series.gameIndex
@@ -132,15 +139,19 @@ private fun MatchHost(app: AppContext, nav: Nav, showcase: Boolean) {
             seriesPoints = if (series != null && series.games > 1) totals else null,
             seriesLabel = series?.takeIf { it.games > 1 }?.let { "Game ${minOf(it.gameIndex + (if (last == null) 1 else 0), it.games)}/${it.games}" },
             restartLabel = if (series != null && series.games > 1) "Replay game" else "Restart",
+            showAds = series != null,
             endOverlay = series?.let { sr ->
                 {
                     val res = last
                     if (res != null) {
                         if (sr.isOver) SeriesChampion(sr, style, onNew = { store.save(null); nav.matchKey++ }, onMenu = { store.save(null); nav.screen = Screen.Menu })
-                        else SeriesScoreboard(sr, res, style, onNext = { round++ }, onMenu = { nav.screen = Screen.Menu })
+                        else SeriesScoreboard(sr, res, style, onNext = { if (app.ads.ad(lux.core.Ads.Spot.Break) != null) breakAd = true else round++ }, onMenu = { nav.screen = Screen.Menu })
                     }
                 }
             },
         )
+        val brk = if (breakAd) app.ads.ad(lux.core.Ads.Spot.Break) else null
+        if (breakAd && brk == null) LaunchedEffect(Unit) { breakAd = false; round++ }
+        if (brk != null) BreakCard(brk.first, brk.second) { breakAd = false; round++ }
     }
 }

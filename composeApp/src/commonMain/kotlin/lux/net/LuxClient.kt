@@ -12,6 +12,8 @@ import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.statement.readRawBytes
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -74,7 +76,7 @@ class LuxClient(private val prefs: Prefs) {
     val http = HttpClient {
         install(ContentNegotiation) { json(Wire.json) }
         install(WebSockets)
-        install(HttpTimeout) { connectTimeoutMillis = 8_000; requestTimeoutMillis = 15_000 }
+        install(HttpTimeout) { connectTimeoutMillis = 8_000; requestTimeoutMillis = 30_000 }
         expectSuccess = false
     }
 
@@ -136,6 +138,25 @@ class LuxClient(private val prefs: Prefs) {
         call { http.post(url("/v1/purchases")) { bearerAuth(token); contentType(ContentType.Application.Json); setBody(lux.core.net.PurchaseRequest(productId, purchaseToken)) } }
     suspend fun setFamilyPassGroup(groupId: String): lux.core.net.Entitlements =
         call { http.post(url("/v1/family-pass")) { bearerAuth(token); contentType(ContentType.Application.Json); setBody(lux.core.net.FamilyPassRequest(groupId)) } }
+
+    // ---- ads
+    suspend fun adsNow(area: String, install: String): lux.core.net.AdsNow =
+        call { http.get(url("/v1/ads" + if (area.isNotEmpty()) "?area=$area" else "")) { if (token.isNotEmpty()) bearerAuth(token); header("X-Lux-Install", install) } }
+    suspend fun adsSeen(ids: List<String>, install: String) {
+        http.post(url("/v1/ads/seen")) { if (token.isNotEmpty()) bearerAuth(token); header("X-Lux-Install", install); contentType(ContentType.Application.Json); setBody(ids) }
+    }
+    /** A file from the server (an ad picture). */
+    suspend fun bytes(path: String): ByteArray {
+        val r = http.get(url(path))
+        if (!r.status.isSuccess()) throw NetError("Picture not found.")
+        return r.readRawBytes()
+    }
+    suspend fun adQuote(req: lux.core.net.AdQuoteRequest): lux.core.net.AdQuote =
+        call { http.post(url("/v1/ads/quote")) { contentType(ContentType.Application.Json); setBody(req) } }
+    suspend fun bookAd(req: lux.core.net.AdBookingRequest): lux.core.net.AdBooking =
+        call { http.post(url("/v1/ads/bookings")) { bearerAuth(token); contentType(ContentType.Application.Json); setBody(req) } }
+    suspend fun myAds(): List<lux.core.net.AdBooking> = call { http.get(url("/v1/ads/bookings")) { bearerAuth(token) } }
+    suspend fun cancelAd(id: String): lux.core.net.AdBooking = call { http.post(url("/v1/ads/bookings/$id/cancel")) { bearerAuth(token) } }
 
     // ---- ranked
     suspend fun rankedMe(): lux.core.net.RankedProfile = call { http.get(url("/v1/ranked/me")) { bearerAuth(token) } }

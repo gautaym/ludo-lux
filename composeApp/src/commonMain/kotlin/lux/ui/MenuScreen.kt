@@ -65,7 +65,7 @@ import lux.theme.BoardStyles
 import kotlin.math.sin
 
 @Composable
-fun MenuScreen(onPlay: () -> Unit, onContinue: () -> Unit, onEffects: () -> Unit, onFamily: () -> Unit, onRanked: () -> Unit, onShop: () -> Unit) {
+fun MenuScreen(onPlay: () -> Unit, onContinue: () -> Unit, onEffects: () -> Unit, onFamily: () -> Unit, onRanked: () -> Unit, onShop: () -> Unit, onAdvertise: () -> Unit = {}) {
     val app = LocalApp.current
     val s = app.settings
     val st = BoardStyles.get(s.board)
@@ -118,6 +118,19 @@ fun MenuScreen(onPlay: () -> Unit, onContinue: () -> Unit, onEffects: () -> Unit
                                 }
                             }
                         }
+                    }
+                    // For local businesses: a quiet link, never in the way of playing.
+                    val adClick = tap(onAdvertise)
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color(0x33000000))
+                            .border(1.dp, Palette.panelEdge, RoundedCornerShape(18.dp)).clickable(onClick = adClick).padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Label("Have a business?", 18.sp, Color.White, display = true)
+                            Label("Show your ad to players in your state", 14.sp, Palette.textDim)
+                        }
+                        Label("Advertise", 17.sp, Palette.gold, display = true)
                     }
                     Spacer(Modifier.height(4.dp))
                 }
@@ -257,7 +270,9 @@ private fun BoardPicker(onShop: () -> Unit) {
 
 @Composable
 fun SettingsOverlay(onClose: () -> Unit) {
-    val s = LocalApp.current.settings
+    val app = LocalApp.current
+    val s = app.settings
+    var areaOpen by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().background(Color(0xB3000000)).clickable(remember { MutableInteractionSource() }, null, onClick = onClose), contentAlignment = Alignment.Center) {
         Panel(Modifier.widthIn(max = 460.dp).padding(18.dp).clickable(remember { MutableInteractionSource() }, null) {}) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -270,9 +285,20 @@ fun SettingsOverlay(onClose: () -> Unit) {
                 ToggleRow("Balanced dice", "Sixes come in time; nobody stays stuck", s.balancedDice) { s.balancedDice = it }
                 ToggleRow("Lucky six", "After 4 tries with all pieces home, a six", s.luckySix) { s.luckySix = it }
                 ToggleRow("Calm effects", "Fewer particles, no camera moves", s.reducedMotion) { s.reducedMotion = it }
+                // Which state's local ads to show (automatic = from the internet connection, nothing else).
+                val areaClick = tap { areaOpen = true }
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = areaClick).padding(vertical = 10.dp, horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Label("Area for local ads", 20.sp)
+                        Label(lux.core.Ads.area(app.ads.chosenArea)?.name ?: "Automatic", 14.sp, Palette.textDim)
+                    }
+                    Label("Change", 15.sp, Palette.gold, display = true)
+                }
                 Spacer(Modifier.height(4.dp))
                 Label("Ludo Lux 0.2 - made with Kotlin", 13.sp, Palette.textDim, align = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                Label("Area lookup: IP Geolocation by DB-IP (db-ip.com)", 11.sp, Palette.textDim, align = TextAlign.Center, modifier = Modifier.fillMaxWidth())
             }
         }
+        if (areaOpen) AreaPicker(app.ads.chosenArea, automatic = true, onPick = { app.ads.chooseArea(it); app.ads.refreshSoon() }, onClose = { areaOpen = false })
     }
 }

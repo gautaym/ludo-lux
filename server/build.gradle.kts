@@ -19,6 +19,8 @@ dependencies {
     implementation(libs.ktor.server.content.negotiation)
     implementation(libs.ktor.server.status.pages)
     implementation(libs.ktor.server.call.logging)
+    implementation(libs.ktor.server.forwarded.header)
+    implementation(libs.maxmind.db)
     implementation(libs.ktor.serialization.json)
     implementation(libs.sqlite.jdbc)
     implementation(libs.logback)

@@ -53,6 +53,11 @@ chown -R $ADMIN:$ADMIN /opt/ludolux
 chown -R 10001:10001 /opt/ludolux/deploy/data /opt/ludolux/deploy/secrets
 chmod 700 /opt/ludolux/deploy/data /opt/ludolux/deploy/secrets
 
+echo "== monthly IP-location update for area ads (see update-geo.sh)"
+cat > /etc/cron.d/ludolux-geo <<'CRON'
+15 4 3 * * root /opt/ludolux/deploy/update-geo.sh >> /var/log/ludolux-geo.log 2>&1
+CRON
+
 echo "== nightly encrypted backup at 03:30 (see backup.sh)"
 cat > /etc/cron.d/ludolux-backup <<'CRON'
 30 3 * * * root /opt/ludolux/deploy/backup.sh >> /var/log/ludolux-backup.log 2>&1
@@ -60,4 +65,5 @@ CRON
 
 echo
 echo "Done. Next (as $ADMIN): copy the project to /opt/ludolux, create deploy/.env from .env.example,"
-echo "build the jar (./gradlew :server:fatJar) and run:  cd /opt/ludolux/deploy && docker compose up -d --build"
+echo "run deploy/update-geo.sh once, build the jar (./gradlew :server:fatJar) and run:"
+echo "  cd /opt/ludolux/deploy && docker compose up -d --build"

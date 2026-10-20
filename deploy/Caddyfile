@@ -1,8 +1,8 @@
 # HTTPS is automatic. WebSockets (/v1/play) pass straight through.
 {$DOMAIN} {
 	encode gzip
-	# Monitoring numbers stay private (read them on the server: curl localhost via docker exec).
-	@private path /metrics
+	# Monitoring numbers and the ads review page stay private: open them through an SSH tunnel (see RUNBOOK.md).
+	@private path /metrics /admin /admin/* /v1/admin/*
 	respond @private 404
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"

@@ -49,6 +49,9 @@ class TestPlatform : lux.app.Platform by SilentPlatform {
     val shared = ArrayList<String>()
     override fun share(text: String) { shared += text }
     override suspend fun googleIdToken(): String? = "test:desktop-" + prefs.getString("userName", "mom") + ":Mom"
+    /** What "choosing a picture" returns in screenshots. */
+    var picture: ByteArray? = null
+    override suspend fun pickImage(maxSide: Int): ByteArray? = picture
 }
 
 /**

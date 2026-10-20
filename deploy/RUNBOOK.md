@@ -44,6 +44,17 @@ docker compose start ludolux
 3. Check `last`, `/var/log/auth.log`, `docker compose logs`. Rebuild the server from scratch if in doubt and restore the
    latest backup made before the incident.
 
+## Reviewing ads (every day or two)
+Every ad is checked by you before it can run. The review page is only reachable on the server itself:
+1. From your PC: `ssh -L 8080:127.0.0.1:8080 <you>@<server's Tailscale name>` and keep it open.
+2. Open `http://localhost:8080/admin`, paste `ADMIN_TOKEN` from `deploy/.env`.
+3. For each new ad: look at the picture and the business. **Approve** if it is honest and suitable for a family game;
+   otherwise **Reject** with a short reason (the advertiser sees it).
+4. After approval the advertiser pays you (UPI / bank transfer, with a GST invoice). Then **Mark paid** with the payment
+   reference. Only paid ads run. Bookings not reviewed, or not paid, by their start day are cancelled automatically.
+5. Never approve: anything misleading, other people's trademarks without permission, tobacco/alcohol/betting/adult,
+   or political ads (switched off for now).
+
 ## Monitoring
 `docker compose exec ludolux wget -qO- http://127.0.0.1:8080/metrics` - live rooms by status and players waiting for
 ranked. (Kept off the public internet by Caddy.) Point Prometheus/Grafana or any uptime checker at `/health`.

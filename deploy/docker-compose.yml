@@ -5,11 +5,17 @@ services:
     build: { context: .., dockerfile: deploy/Dockerfile }
     restart: unless-stopped
     env_file: .env
+    environment:
+      # Behind Caddy: each player's own address comes from the header Caddy sets (used for rate limits and ad areas).
+      TRUST_PROXY: "1"
+      GEO_DB: /data/geo/dbip-city-lite.mmdb
     volumes:
       - ./data:/data
       - ./secrets:/secrets:ro
-    # Not published to the internet: only Caddy talks to it.
+    # Not on the internet: Caddy talks to it inside Docker, and you reach it on the server itself only
+    # (the ads review page and metrics, through an SSH tunnel).
     expose: ["8080"]
+    ports: ["127.0.0.1:8080:8080"]
     read_only: true
     tmpfs: ["/tmp"]
     security_opt: ["no-new-privileges:true"]

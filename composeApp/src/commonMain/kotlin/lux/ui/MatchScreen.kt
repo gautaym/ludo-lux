@@ -100,6 +100,8 @@ fun MatchScreen(
     restartLabel: String = "Restart",
     /** Shown instead of the single-game results when the game ends (the series scoreboard). */
     endOverlay: (@Composable () -> Unit)? = null,
+    /** Ad banners above and below the board, when the screen has room to spare (never in the effects reel). */
+    showAds: Boolean = true,
 ) {
     val app = LocalApp.current
     val fonts = LocalFonts.current
@@ -118,8 +120,20 @@ fun MatchScreen(
         // The board is as big as the screen allows (edge to edge in portrait); the player plates sit above and below it.
         val side = floor(min(w - 2 * margin, h - topBar - 2 * plateH - 2 * margin))
         val left = ((w - side) / 2).roundToInt().toFloat()
-        // Plates + board + plates as one block, centred in the space under the top bar.
-        val top = (topBar + plateH + ((h - topBar - 2 * plateH - side) / 2).coerceAtLeast(0f) * 0.85f).roundToInt().toFloat()
+        // Ads only use the room left over once the board is as big as it can be: the board never shrinks for an ad.
+        val adW = min(w - 2 * margin, with(density) { 560.dp.toPx() })
+        val adH = adW / lux.core.Ads.Spot.Top.ratio
+        val gap = with(density) { 8.dp.toPx() }
+        val spare = h - topBar - 2 * plateH - side - 2 * margin
+        val topAd = if (showAds && !director.showcase) app.ads.ad(lux.core.Ads.Spot.Top) else null
+        val bottomAd = if (showAds && !director.showcase) app.ads.ad(lux.core.Ads.Spot.Bottom) else null
+        val room = (spare / (adH + gap)).toInt()
+        val showBottom = bottomAd != null && room >= (if (topAd != null) 2 else 1)
+        val showTop = topAd != null && room >= (if (showBottom) 2 else 1)
+        val above = if (showTop) adH + gap else 0f
+        val below = if (showBottom) adH + gap else 0f
+        // Plates + board + plates as one block, centred in the space under the top bar (and between any ads).
+        val top = (topBar + above + plateH + ((h - topBar - above - below - 2 * plateH - side) / 2).coerceAtLeast(0f) * 0.85f).roundToInt().toFloat()
         val view = View(left, top, side / ART_CELLS, stage.viewTurns)
         val boardImg = rememberBoard(st, side.toInt())
 
@@ -156,6 +170,9 @@ fun MatchScreen(
                 }
             }
         }
+
+        if (showTop) AdBanner(topAd!!.first, topAd.second, Modifier.offset { IntOffset(((w - adW) / 2).roundToInt(), (topBar + gap / 2).roundToInt()) }.size(with(density) { adW.toDp() }, with(density) { adH.toDp() }))
+        if (showBottom) AdBanner(bottomAd!!.first, bottomAd.second, Modifier.offset { IntOffset(((w - adW) / 2).roundToInt(), (h - adH - gap / 2).roundToInt()) }.size(with(density) { adW.toDp() }, with(density) { adH.toDp() }))
 
         // Top bar: pause on the left, short announcements in the middle (never over the board).
         Row(Modifier.fillMaxWidth().height(with(density) { topBar.toDp() }).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {

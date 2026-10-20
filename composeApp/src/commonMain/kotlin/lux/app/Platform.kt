@@ -38,6 +38,11 @@ interface Platform {
     suspend fun purchase(productId: String, subscription: Boolean): String? = "test:" + productId + "-" + kotlin.random.Random.nextLong(1, Long.MAX_VALUE)
     /** Local prices from the store, by product id (empty if unknown). */
     suspend fun prices(): Map<String, String> = emptyMap()
+    /**
+     * Lets the person choose a picture from their phone and returns it as a JPEG no bigger than [maxSide] pixels
+     * on its long side (null if they cancelled). Throws [lux.net.NetError] if the picture can't be read.
+     */
+    suspend fun pickImage(maxSide: Int = 2000): ByteArray? = throw lux.net.NetError("Choosing a picture isn't available here.")
 }
 
 /** Used by previews and screenshots: silent, and remembers settings only in memory. */
@@ -159,6 +164,7 @@ class AppContext(val platform: Platform) {
     val series = SeriesStore(platform.prefs)
     val net = lux.net.LuxClient(platform.prefs)
     val shop = ShopState(platform.prefs, net)
+    val ads = AdsState(platform.prefs, net)
 
     fun sfx(id: SfxId, volume: Float = 1f, pitch: Float = 1f) { if (settings.sound) platform.play(id, volume, pitch) }
     fun haptic(s: Haptic) { if (settings.haptics) platform.vibrate(s) }
@@ -195,4 +201,6 @@ sealed interface Screen {
     data object Ranked : Screen
     /** The shop: Family Pass, Unlock all, boards and effects. */
     data object Shop : Screen
+    /** For businesses: book an ad, and follow my ads. */
+    data object Advertise : Screen
 }

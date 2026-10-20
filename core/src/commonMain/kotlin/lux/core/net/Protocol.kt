@@ -102,6 +102,55 @@ data class Entitlements(
 /** The buyer chooses which family group their Family Pass covers (up to FAMILY_PASS_SEATS members). */
 @Serializable data class FamilyPassRequest(val groupId: String)
 
+// ---------------------------------------------------------------- ads (see lux.core.Ads)
+
+/** One ad to show now. [image] is a path on the server (e.g. "/ads/img/abc.png"). */
+@Serializable data class AdCreative(val booking: String, val spot: String, val image: String, val sponsor: String, val until: String)
+
+/** What this player should see now. [adFree]: the player has a Family Pass (or is covered by one). */
+@Serializable data class AdsNow(
+    val area: String, val areaName: String, val ads: List<AdCreative> = emptyList(), val adFree: Boolean = false,
+    /** Today in India ("yyyy-MM-dd"), for the booking calendar. */
+    val today: String = "",
+)
+
+/** Price and availability for a booking. [startDay] is "yyyy-MM-dd" (India time). */
+@Serializable data class AdQuoteRequest(val spot: String, val area: String, val startDay: String, val days: Int)
+
+@Serializable data class AdQuote(
+    val perDay: Int, val price: Int, val gst: Int, val total: Int,
+    /** Days already taken by another advertiser (empty = all free). */
+    val taken: List<String> = emptyList(),
+    /** About how many different players a day saw ads in this area lately (0 = not known yet). */
+    val playersPerDay: Int = 0,
+    val problem: String = "",
+)
+
+@Serializable data class AdBookingRequest(
+    val spot: String, val area: String, val startDay: String, val days: Int,
+    val business: String, val category: String, val contact: String, val gstin: String = "",
+    /** The picture (PNG or JPEG), Base64. The server crops it to the spot's shape. */
+    val imageBase64: String,
+)
+
+@Serializable data class AdBooking(
+    val id: String, val spot: String, val area: String, val areaName: String, val startDay: String, val days: Int,
+    val business: String, val category: String, val status: String, val statusTitle: String,
+    val price: Int, val gst: Int, val total: Int, val image: String,
+    /** Why it was not approved (when rejected). */
+    val note: String = "",
+    /** "live", "upcoming", "ended" for scheduled bookings. */
+    val phase: String = "",
+    /** Different players who saw it so far. */
+    val reached: Int = 0,
+    val contact: String = "",
+    val gstin: String = "",
+    val paidRef: String = "",
+    val created: Long = 0,
+)
+
+@Serializable data class AdDecision(val note: String = "", val ref: String = "")
+
 // ---------------------------------------------------------------- ranked
 
 /** My ranked standing this season. The skill rating itself stays hidden; only the tier and progress are shown. */

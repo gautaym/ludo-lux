@@ -28,11 +28,15 @@ import kotlin.concurrent.thread
 class MainActivity : ComponentActivity() {
     private lateinit var platform: AndroidPlatform
     private val nav = Nav()
+    // The system photo picker: the person chooses one picture; the app needs no storage permission.
+    private val picker = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()) { platform.onPicked(it) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        platform = AndroidPlatform(this, this)
+        platform = AndroidPlatform(this, this) {
+            picker.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly))
+        }
         val app = AppContext(platform)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -54,7 +58,7 @@ class MainActivity : ComponentActivity() {
 }
 
 /** Android services: SharedPreferences, a SoundPool of recorded + synthesised sounds, and the vibrator. */
-class AndroidPlatform(context: Context, private val activity: android.app.Activity) : Platform {
+class AndroidPlatform(context: Context, private val activity: android.app.Activity, private val launchPicker: () -> Unit = {}) : Platform {
     private val sp = context.getSharedPreferences("lux", Context.MODE_PRIVATE)
     override val prefs = object : Prefs {
         override fun getInt(key: String, default: Int) = sp.getInt(key, default)
@@ -200,6 +204,40 @@ class AndroidPlatform(context: Context, private val activity: android.app.Activi
         // An empty token means a pending payment (e.g. cash at a store); it unlocks once it completes.
         if (token.isEmpty()) throw lux.net.NetError("Your payment is pending. The item unlocks as soon as it completes.")
         return token
+    }
+
+    // ---------------------------------------------------------------- choosing a picture (for an ad)
+
+    private var picked: kotlinx.coroutines.CompletableDeferred<android.net.Uri?>? = null
+
+    fun onPicked(uri: android.net.Uri?) { picked?.complete(uri); picked = null }
+
+    override suspend fun pickImage(maxSide: Int): ByteArray? {
+        val wait = kotlinx.coroutines.CompletableDeferred<android.net.Uri?>()
+        picked = wait
+        launchPicker()
+        val uri = wait.await() ?: return null
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val cr = activity.contentResolver
+            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            cr.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, bounds) }
+            if (bounds.outWidth <= 0) throw lux.net.NetError("That picture could not be read. Please try another.")
+            // Decode at about the size needed (phone photos are huge), then shrink to maxSide.
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxSide) sample *= 2
+            var bmp = cr.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }) }
+                ?: throw lux.net.NetError("That picture could not be read. Please try another.")
+            // Photos taken sideways carry their rotation separately: apply it so the ad is upright.
+            val turn = cr.openInputStream(uri)?.use {
+                when (android.media.ExifInterface(it).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1)) { 6 -> 90f; 3 -> 180f; 8 -> 270f; else -> 0f }
+            } ?: 0f
+            val scale = minOf(1f, maxSide.toFloat() / maxOf(bmp.width, bmp.height))
+            if (turn != 0f || scale < 1f) {
+                val m = android.graphics.Matrix().apply { postScale(scale, scale); postRotate(turn) }
+                bmp = android.graphics.Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
+            }
+            java.io.ByteArrayOutputStream().also { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }.toByteArray()
+        }
     }
 
     fun release() = pool.release()

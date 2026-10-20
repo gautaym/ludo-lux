@@ -12,6 +12,15 @@ import java.util.Base64
 data class User(val id: String, val name: String, val tag: Int = 0, val google: Boolean = false)
 data class Group(val id: String, val name: String, val code: String, val owner: String)
 
+/** One ad booking as stored. */
+data class AdRow(
+    val id: String, val userId: String, val spot: lux.core.Ads.Spot, val area: String, val start: LocalDate, val days: Int,
+    val business: String, val category: String, val contact: String, val gstin: String, val image: String,
+    val price: Int, val gst: Int, val status: lux.core.Ads.Status, val note: String = "", val paidRef: String = "", val created: Long = 0,
+) {
+    val end: LocalDate get() = start.plusDays(days.toLong())
+}
+
 /** One human's result in a finished game, for the group standings. */
 data class PlayerResult(val userId: String, val rank: Int, val pieces: Int, val points: Int)
 
@@ -50,6 +59,12 @@ class Store(path: String) {
             st.execute("CREATE TABLE IF NOT EXISTS family_pass(owner TEXT PRIMARY KEY REFERENCES users(id), group_id TEXT NOT NULL REFERENCES groups(id))")
             // Live rooms, saved after every change so games survive a server restart (e.g. an update).
             st.execute("CREATE TABLE IF NOT EXISTS live_rooms(code TEXT PRIMARY KEY, data TEXT NOT NULL, updated INTEGER NOT NULL)")
+            // Ads: bookings, and who saw what as pseudonymous counts only (a salted hash, never shown or shared).
+            st.execute("CREATE TABLE IF NOT EXISTS ad_bookings(id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), spot TEXT NOT NULL, area TEXT NOT NULL, start_day TEXT NOT NULL, days INTEGER NOT NULL, business TEXT NOT NULL, category TEXT NOT NULL, contact TEXT NOT NULL, gstin TEXT NOT NULL, image TEXT NOT NULL, price INTEGER NOT NULL, gst INTEGER NOT NULL, status TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', paid_ref TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL, decided INTEGER NOT NULL DEFAULT 0)")
+            st.execute("CREATE INDEX IF NOT EXISTS ad_bookings_spot ON ad_bookings(spot, status)")
+            st.execute("CREATE TABLE IF NOT EXISTS ad_seen(booking_id TEXT NOT NULL, day TEXT NOT NULL, viewer TEXT NOT NULL, PRIMARY KEY(booking_id, day, viewer)) WITHOUT ROWID")
+            st.execute("CREATE TABLE IF NOT EXISTS area_seen(area TEXT NOT NULL, day TEXT NOT NULL, viewer TEXT NOT NULL, PRIMARY KEY(area, day, viewer)) WITHOUT ROWID")
+            st.execute("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
             st.execute("CREATE INDEX IF NOT EXISTS gp_user ON game_players(user_id)")
             st.execute("CREATE INDEX IF NOT EXISTS games_group ON games(group_id, finished)")
         }
@@ -279,6 +294,98 @@ class Store(path: String) {
             if (userId in seats) return name
         }
         return null
+    }
+
+    // ---------------- ads (see lux.core.Ads and Ads.kt)
+
+    /** Server-wide secret salt for the reach counts, made once. */
+    @Synchronized fun salt(): String =
+        db.prepareStatement("SELECT value FROM meta WHERE key = 'salt'").use { it.executeQuery().use { r -> if (r.next()) r.getString(1) else null } }
+            ?: newToken().also { v -> db.prepareStatement("INSERT INTO meta(key, value) VALUES('salt', ?)").use { it.setString(1, v); it.executeUpdate() } }
+
+    private fun readBooking(r: java.sql.ResultSet) = AdRow(
+        r.getString("id"), r.getString("user_id"), lux.core.Ads.Spot.valueOf(r.getString("spot")), r.getString("area"), LocalDate.parse(r.getString("start_day")),
+        r.getInt("days"), r.getString("business"), r.getString("category"), r.getString("contact"), r.getString("gstin"), r.getString("image"),
+        r.getInt("price"), r.getInt("gst"), lux.core.Ads.Status.valueOf(r.getString("status")), r.getString("note"), r.getString("paid_ref"), r.getLong("created"),
+    )
+
+    private fun bookings(where: String, vararg args: String): List<AdRow> =
+        db.prepareStatement("SELECT * FROM ad_bookings $where").use { st ->
+            args.forEachIndexed { i, a -> st.setString(i + 1, a) }
+            st.executeQuery().use { r -> buildList { while (r.next()) add(readBooking(r)) } }
+        }
+
+    /**
+     * Books a spot if every day is still free (checked and written together, so two advertisers can never get the
+     * same slot). Returns null if any day is taken.
+     */
+    @Synchronized fun createBooking(b: AdRow): AdRow? {
+        if (takenDays(b.spot, b.area, b.start, b.days).isNotEmpty()) return null
+        val row = b.copy(id = id(), created = now())
+        db.prepareStatement("INSERT INTO ad_bookings(id, user_id, spot, area, start_day, days, business, category, contact, gstin, image, price, gst, status, created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").use {
+            it.setString(1, row.id); it.setString(2, row.userId); it.setString(3, row.spot.name); it.setString(4, row.area); it.setString(5, row.start.toString())
+            it.setInt(6, row.days); it.setString(7, row.business); it.setString(8, row.category); it.setString(9, row.contact); it.setString(10, row.gstin)
+            it.setString(11, row.image); it.setInt(12, row.price); it.setInt(13, row.gst); it.setString(14, row.status.name); it.setLong(15, row.created)
+            it.executeUpdate()
+        }
+        return row
+    }
+
+    /** Days in [start, start+days) when [spot] is already held in an overlapping area (under review, approved or paid). */
+    @Synchronized fun takenDays(spot: lux.core.Ads.Spot, area: String, start: LocalDate, days: Int, except: String = ""): List<LocalDate> {
+        val want = (0 until days).map { start.plusDays(it.toLong()) }
+        val held = bookings("WHERE spot = ? AND status IN ('Review','Payment','Scheduled') AND id != ?", spot.name, except)
+            .filter { lux.core.Ads.overlaps(it.area, area) }
+            .flatMap { b -> (0 until b.days).map { b.start.plusDays(it.toLong()) } }.toSet()
+        return want.filter { it in held }
+    }
+
+    @Synchronized fun booking(id: String): AdRow? = bookings("WHERE id = ?", id).firstOrNull()
+    @Synchronized fun bookingsOf(userId: String): List<AdRow> = bookings("WHERE user_id = ? ORDER BY created DESC", userId)
+    @Synchronized fun allBookings(): List<AdRow> = bookings("ORDER BY created DESC")
+
+    @Synchronized fun setBookingStatus(id: String, status: lux.core.Ads.Status, note: String? = null, paidRef: String? = null) {
+        db.prepareStatement("UPDATE ad_bookings SET status = ?, note = COALESCE(?, note), paid_ref = COALESCE(?, paid_ref), decided = ? WHERE id = ?").use {
+            it.setString(1, status.name); it.setString(2, note); it.setString(3, paidRef); it.setLong(4, now()); it.setString(5, id); it.executeUpdate()
+        }
+    }
+
+    /** Paid bookings showing on [day] in [area] or nationally. */
+    @Synchronized fun liveBookings(day: LocalDate, area: String): List<AdRow> =
+        bookings("WHERE status = 'Scheduled' AND (area = ? OR area = ?)", area, lux.core.Ads.NATIONAL)
+            .filter { !day.isBefore(it.start) && day.isBefore(it.end) }
+
+    /** Remembers that [viewer] (a salted hash) saw these bookings today, and played in [area] today. */
+    @Synchronized fun recordSeen(bookingIds: List<String>, area: String, day: LocalDate, viewer: String) {
+        db.prepareStatement("INSERT OR IGNORE INTO ad_seen(booking_id, day, viewer) VALUES(?,?,?)").use { st ->
+            for (b in bookingIds) { st.setString(1, b); st.setString(2, day.toString()); st.setString(3, viewer); st.addBatch() }
+            st.executeBatch()
+        }
+        db.prepareStatement("INSERT OR IGNORE INTO area_seen(area, day, viewer) VALUES(?,?,?)").use {
+            it.setString(1, area); it.setString(2, day.toString()); it.setString(3, viewer); it.executeUpdate()
+        }
+    }
+
+    /** Different players who saw [bookingId] so far. */
+    @Synchronized fun reach(bookingId: String): Int =
+        db.prepareStatement("SELECT COUNT(DISTINCT viewer) FROM ad_seen WHERE booking_id = ?").use { it.setString(1, bookingId); it.executeQuery().use { r -> r.next(); r.getInt(1) } }
+
+    /** Average different players a day over the 7 days before [today], in [area] (All India counts every area). */
+    @Synchronized fun playersPerDay(area: String, today: LocalDate): Int {
+        val national = area == lux.core.Ads.NATIONAL
+        val sql = if (national) "SELECT COUNT(*) FROM (SELECT DISTINCT day, viewer FROM area_seen WHERE day >= ? AND day < ?)"
+                  else "SELECT COUNT(*) FROM area_seen WHERE day >= ? AND day < ? AND area = ?"
+        return db.prepareStatement(sql).use {
+            it.setString(1, today.minusDays(7).toString()); it.setString(2, today.toString()); if (!national) it.setString(3, area)
+            it.executeQuery().use { r -> r.next(); r.getInt(1) / 7 }
+        }
+    }
+
+    /** Drops raw seen-records older than [keepDays] days. */
+    @Synchronized fun pruneSeen(today: LocalDate, keepDays: Long = 120) {
+        val cut = today.minusDays(keepDays).toString()
+        db.prepareStatement("DELETE FROM area_seen WHERE day < ?").use { it.setString(1, cut); it.executeUpdate() }
+        db.prepareStatement("DELETE FROM ad_seen WHERE day < ?").use { it.setString(1, cut); it.executeUpdate() }
     }
 
     // ---------------- ranked (separate from groups)

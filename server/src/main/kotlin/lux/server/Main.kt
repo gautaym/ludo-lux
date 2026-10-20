@@ -77,7 +77,19 @@ fun main() {
         "test" -> TestBilling
         else -> NoBilling
     }
-    embeddedServer(CIO, port = port, host = "0.0.0.0") { luxServer(store, cfg, google, billing) }.start(wait = true)
+    val dbPath = java.nio.file.Path.of(env["DB_PATH"] ?: "ludolux.db").toAbsolutePath()
+    // Ads: ADMIN_TOKEN opens the review page; GEO_DB is an IP-location file (.mmdb) for state-level ads.
+    val geo = env["GEO_DB"]?.let { java.nio.file.Path.of(it) }?.takeIf { java.nio.file.Files.exists(it) }
+    val ads = AdsConfig(
+        adminToken = env["ADMIN_TOKEN"].orEmpty(),
+        imagesDir = java.nio.file.Path.of(env["AD_IMAGES"] ?: dbPath.resolveSibling("ad-images").toString()),
+        locator = geo?.let { GeoDbLocator(it) } ?: AreaLocator { null },
+        freeWithPass = env["ADS_FREE_WITH_PASS"] != "0",
+        // ADS_TEST_DAY=yyyy-MM-dd pretends it is that day for ads (home testing only, never on a public server).
+        clock = env["ADS_TEST_DAY"]?.let { java.time.Clock.fixed(java.time.LocalDate.parse(it).atTime(12, 0).atZone(INDIA).toInstant(), INDIA) } ?: java.time.Clock.system(INDIA),
+    )
+    // TRUST_PROXY=1 behind Caddy: the player's own address comes from X-Forwarded-For (Caddy sets it; players can't).
+    embeddedServer(CIO, port = port, host = "0.0.0.0") { luxServer(store, cfg, google, billing, ads, trustProxy = env["TRUST_PROXY"] == "1") }.start(wait = true)
 }
 
 /** The LudoLux "Web application" OAuth client id (public, not a secret). Google sign-in tokens from the app name it. */
@@ -95,7 +107,10 @@ class Limiter(private val max: Int, private val windowMs: Long) {
     }
 }
 
-fun Application.luxServer(store: Store, cfg: Config, google: TokenVerifier = TokenVerifier { null }, billing: PurchaseVerifier = NoBilling) {
+fun Application.luxServer(
+    store: Store, cfg: Config, google: TokenVerifier = TokenVerifier { null }, billing: PurchaseVerifier = NoBilling,
+    ads: AdsConfig = AdsConfig(), trustProxy: Boolean = false,
+) {
     val log = LoggerFactory.getLogger("lux")
     val scope = CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
     // Stop rooms, timers and matchmaking when the server stops (live rooms are already saved).
@@ -107,6 +122,9 @@ fun Application.luxServer(store: Store, cfg: Config, google: TokenVerifier = Tok
     rooms.restoreAll().takeIf { it > 0 }?.let { log.info("restored $it live room(s) after restart") }
     scope.launch { while (true) { delay(60_000); rooms.sweep() } }
     scope.launch { while (true) { delay(1_000); runCatching { matchmaker.match() }.onFailure { log.error("matchmaking", it) } } }
+    scope.launch { while (true) { runCatching { adSweep(store, ads) }.onFailure { log.error("ad sweep", it) }; delay(3_600_000) } }
+
+    if (trustProxy) install(io.ktor.server.plugins.forwardedheaders.XForwardedHeaders) { useLastProxy() }
 
     install(ContentNegotiation) { json(Wire.json) }
     install(CallLogging)
@@ -126,6 +144,11 @@ fun Application.luxServer(store: Store, cfg: Config, google: TokenVerifier = Tok
             ?: throw HttpError(HttpStatusCode.Unauthorized, "Not signed in.")
         return store.userByToken(token) ?: throw HttpError(HttpStatusCode.Unauthorized, "Not signed in.")
     }
+
+    fun ApplicationCall.userOrNull(): User? = request.header("Authorization")?.removePrefix("Bearer ")?.trim()?.takeIf { it.isNotEmpty() }?.let { store.userByToken(it) }
+
+    /** Has a Family Pass, or is covered by one. */
+    fun covered(u: User) = store.owned(u.id)[lux.core.Catalog.FAMILY_PASS] != null || store.coveredBy(u.id) != null
 
     fun detail(g: Group): GroupDetail = GroupDetail(
         g.id, g.name, g.code, "${cfg.publicUrl}/g/${g.code}", store.standings(g.id), rooms.inGroup(g.id).map { it.snapshotInfo() },
@@ -282,6 +305,9 @@ fun Application.luxServer(store: Store, cfg: Config, google: TokenVerifier = Tok
         }
         get("/v1/ranked/queue") { call.respond(matchmaker.status(call.user())) }
         delete("/v1/ranked/queue") { val u = call.user(); matchmaker.leave(u); call.respond(lux.core.net.QueueStatus(lux.core.net.QueueState.None)) }
+
+        // ---- ads: area-based pictures, booked by businesses, reviewed by a person (see Ads.kt)
+        adRoutes(store, ads, { it.user() }, { it.userOrNull() }, ::covered)
 
         // ---- invite links (WhatsApp etc.): a simple page with the code until app links are set up
         get("/g/{code}") { call.invitePage("Join the family group on Ludo Lux", Wire.cleanCode(call.parameters["code"]!!)) }

@@ -7,7 +7,8 @@ set -a; . ./.env; set +a
 SNAP=/tmp/ludolux-backup.db
 sqlite3 data/ludolux.db ".backup '$SNAP'"
 restic snapshots >/dev/null 2>&1 || restic init
-restic backup "$SNAP" --tag ludolux --host ludolux
+# The database plus the advertisers' pictures (kept as records of what ran).
+restic backup "$SNAP" data/ad-images --tag ludolux --host ludolux
 restic forget --tag ludolux --keep-daily 14 --keep-weekly 8 --keep-monthly 12 --prune
 rm -f "$SNAP"
 if [ "$(date +%d)" = "01" ]; then
