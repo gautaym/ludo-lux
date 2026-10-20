@@ -213,6 +213,7 @@ class Room(
     // ---------------------------------------------------------------- loop
 
     suspend fun run() = kotlinx.coroutines.coroutineScope {
+        persist()   // saved from the start, so an invite link shared before a server restart still works
         val ticker = launch { while (isActive) { delay(cfg.tickMs); inbox.trySend(Tick) } }
         try {
             for (act in inbox) {

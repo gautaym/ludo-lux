@@ -10,7 +10,8 @@ The whole server is one container (`ludolux`) behind Caddy (HTTPS). All data is 
 3. As root: `bash deploy/setup-server.sh <you>`; then `tailscale up`, check SSH over Tailscale works, then close public
    SSH: `ufw delete allow 22/tcp`.
 4. Copy the project to `/opt/ludolux`, then `cp deploy/.env.example deploy/.env` and fill it in.
-   Put the Google Play service-account key in `deploy/secrets/play-service-account.json`.
+   Put the Google Play service-account key in `deploy/secrets/play-service-account.json`, owned by the game user:
+   `sudo install -o 10001 -g 10001 -m 400 ~/play-service-account.json /opt/ludolux/deploy/secrets/`
 5. `./gradlew :server:fatJar` (or build on your PC and copy the jar), then
    `cd /opt/ludolux/deploy && docker compose up -d --build`.
 6. Check: `curl https://play.example.in/health` prints `ok`.

@@ -2,6 +2,8 @@ package lux.server
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.statement.bodyAsText
+import kotlinx.coroutines.delay
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocket
@@ -303,6 +305,28 @@ class ServerTest {
             }
             assertTrue("snapshot" in log, "the restored game was sent to the returning player: $log")
             assertEquals(RoomStatus.Done, end.status)
+        }
+    }
+
+    @Test fun anUnjoinedRoomSurvivesARestart() {
+        val db = File.createTempFile("lux-lobby", ".db").apply { deleteOnExit() }
+        lateinit var mom: AuthResponse
+        lateinit var room: RoomInfo
+        fun server(block: suspend (HttpClient) -> Unit) = testApplication {
+            application { luxServer(Store(db.path), Config(publicUrl = "https://ludo.example", tickMs = 5)) }
+            block(createClient { install(ContentNegotiation) { json(Wire.json) }; install(WebSockets) })
+        }
+        // The host shares the invite link, then the server restarts before anyone opens it.
+        server { http ->
+            mom = http.guest("Mom")
+            val group: GroupDetail = http.postAs(mom.token, "/v1/groups", CreateGroupRequest("Home"))
+            room = http.postAs(mom.token, "/v1/rooms", CreateRoomRequest(group.id, players = 4, seriesGames = 3))
+            delay(100)
+        }
+        server { http ->
+            val res = http.get("/v1/rooms/${room.code}") { bearerAuth(mom.token) }
+            assertEquals(HttpStatusCode.OK, res.status, res.bodyAsText())
+            assertEquals(3, res.body<RoomInfo>().seriesGames)
         }
     }
 }

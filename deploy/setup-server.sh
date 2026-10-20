@@ -49,7 +49,9 @@ usermod -aG docker "$ADMIN"
 echo "== app folder /opt/ludolux"
 mkdir -p /opt/ludolux/deploy/{data,secrets,caddy-data,caddy-config}
 chown -R $ADMIN:$ADMIN /opt/ludolux
-chmod 700 /opt/ludolux/deploy/secrets
+# The game container runs as uid 10001 (see Dockerfile): it owns its database and may read its secrets.
+chown -R 10001:10001 /opt/ludolux/deploy/data /opt/ludolux/deploy/secrets
+chmod 700 /opt/ludolux/deploy/data /opt/ludolux/deploy/secrets
 
 echo "== nightly encrypted backup at 03:30 (see backup.sh)"
 cat > /etc/cron.d/ludolux-backup <<'CRON'
