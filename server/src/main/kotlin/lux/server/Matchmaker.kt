@@ -44,6 +44,9 @@ class Matchmaker(private val store: Store, private val rooms: Rooms) {
         return status(user, now)
     }
 
+    /** Players waiting, by table size (for /metrics). */
+    fun waiting(): Map<Int, Int> = tickets.values.filter { it.room.isEmpty() }.groupingBy { it.players }.eachCount()
+
     @Synchronized fun leave(user: User) { tickets[user.id]?.takeIf { it.room.isEmpty() }?.let { tickets.remove(user.id) } }
 
     @Synchronized fun status(user: User, now: Long = System.currentTimeMillis()): QueueStatus {

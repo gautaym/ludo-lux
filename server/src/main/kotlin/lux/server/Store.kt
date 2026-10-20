@@ -48,6 +48,8 @@ class Store(path: String) {
             st.execute("CREATE INDEX IF NOT EXISTS purchases_user ON purchases(user_id)")
             // Which family group each Family Pass owner chose to cover.
             st.execute("CREATE TABLE IF NOT EXISTS family_pass(owner TEXT PRIMARY KEY REFERENCES users(id), group_id TEXT NOT NULL REFERENCES groups(id))")
+            // Live rooms, saved after every change so games survive a server restart (e.g. an update).
+            st.execute("CREATE TABLE IF NOT EXISTS live_rooms(code TEXT PRIMARY KEY, data TEXT NOT NULL, updated INTEGER NOT NULL)")
             st.execute("CREATE INDEX IF NOT EXISTS gp_user ON game_players(user_id)")
             st.execute("CREATE INDEX IF NOT EXISTS games_group ON games(group_id, finished)")
         }
@@ -209,6 +211,19 @@ class Store(path: String) {
             }
         }.sortedWith(compareByDescending<MemberStanding> { it.points }.thenByDescending { it.wins }.thenBy { it.games }.thenBy { it.name })
     }
+
+    // ---------------- live rooms
+
+    @Synchronized fun saveRoom(code: String, data: String) {
+        db.prepareStatement("INSERT OR REPLACE INTO live_rooms(code, data, updated) VALUES(?,?,?)").use { it.setString(1, code); it.setString(2, data); it.setLong(3, now()); it.executeUpdate() }
+    }
+
+    @Synchronized fun deleteRoom(code: String) {
+        db.prepareStatement("DELETE FROM live_rooms WHERE code = ?").use { it.setString(1, code); it.executeUpdate() }
+    }
+
+    @Synchronized fun liveRooms(): List<String> =
+        db.createStatement().use { st -> st.executeQuery("SELECT data FROM live_rooms").use { r -> buildList { while (r.next()) add(r.getString(1)) } } }
 
     // ---------------- shop
 

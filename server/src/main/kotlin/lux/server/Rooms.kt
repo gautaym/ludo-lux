@@ -52,6 +52,17 @@ data class Config(
     val tickMs: Long = 200,
 )
 
+/** A room as saved in the database (everything needed to carry on after a restart). */
+@kotlinx.serialization.Serializable
+data class SeatSave(val color: Int, val userId: String?, val name: String, val cpu: Boolean)
+
+@kotlinx.serialization.Serializable
+data class RoomSave(
+    val code: String, val groupId: String, val hostId: String, val players: Int, val seriesGames: Int, val board: String, val capture: Int,
+    val ranked: Boolean, val status: RoomStatus, val seats: List<SeatSave>, val series: String, val state: String, val game: Int,
+    val awayStreak: List<Int>, val leftGame: List<Boolean>, val rankLabels: List<String>,
+)
+
 /** One live connection of a user to a room. [send] must never block the room. */
 class Conn(val user: User, val send: (ServerMsg) -> Unit)
 
@@ -61,6 +72,8 @@ class Rooms(private val store: Store, private val cfg: Config, private val scope
     private val rng = SecureRandom()
 
     fun get(code: String) = rooms[code]
+    /** Live rooms by status (for /metrics). */
+    fun counts(): Map<RoomStatus, Int> = rooms.values.groupingBy { it.status }.eachCount()
     fun inGroup(groupId: String) = rooms.values.filter { !it.ranked && it.groupId == groupId && it.status != RoomStatus.Done }
 
     fun newCode(taken: (String) -> Boolean): String {
@@ -92,7 +105,21 @@ class Rooms(private val store: Store, private val cfg: Config, private val scope
 
     /** Drops finished or abandoned rooms. Called periodically. */
     fun sweep(now: Long = System.currentTimeMillis()) {
-        for ((code, r) in rooms) if (r.expired(now)) { r.close(); rooms.remove(code) }
+        for ((code, r) in rooms) if (r.expired(now)) { r.close(); rooms.remove(code); store.deleteRoom(code) }
+    }
+
+    /** Brings back every room that was live when the server stopped. Players' apps reconnect by themselves. */
+    fun restoreAll(): Int {
+        var n = 0
+        for (data in store.liveRooms()) {
+            val save = runCatching { Wire.json.decodeFromString(RoomSave.serializer(), data) }.getOrNull() ?: continue
+            if (save.status == RoomStatus.Done) { store.deleteRoom(save.code); continue }
+            val room = Room.restore(save, store, cfg)
+            rooms[save.code] = room
+            scope.launch { room.run() }
+            n++
+        }
+        return n
     }
 }
 
@@ -116,6 +143,8 @@ class Room(
     private val cfg: Config,
     /** Ranked room: these players, in seat order. Null for family rooms. */
     rankedPlayers: List<User>? = null,
+    /** Being rebuilt from a save (skip work the save already contains). */
+    restoring: Boolean = false,
 ) {
     private val log = LoggerFactory.getLogger("room.$code")
     val ranked = rankedPlayers != null
@@ -134,6 +163,31 @@ class Room(
 
     private class Seat(val color: Int, var userId: String? = null, var name: String = "", var cpu: Boolean = false)
 
+    /** After a restart nobody is connected yet: wait this long before the computer plays for anyone who is away. */
+    private var graceUntil = 0L
+
+    private fun save() = RoomSave(
+        code, groupId, hostId, players, seriesGames, board, capture, ranked, status,
+        seats.map { SeatSave(it.color, it.userId, it.name, it.cpu) }, series?.encode() ?: "",
+        session?.let { StateCodec.encode(it.state) } ?: "", series?.gameIndex ?: 0,
+        awayStreak.toList(), leftGame.toList(), rankLabels.toList(),
+    )
+
+    /** Saves this room so it survives a server restart. */
+    private fun persist() { runCatching { store.saveRoom(code, Wire.json.encodeToString(RoomSave.serializer(), save())) }.onFailure { log.warn("could not save room", it) } }
+
+    private fun load(s: RoomSave) {
+        s.seats.forEachIndexed { i, x -> seats[i].userId = x.userId; seats[i].name = x.name; seats[i].cpu = x.cpu }
+        status = s.status
+        series = Series.decode(s.series)
+        if (s.state.isNotEmpty()) session = MatchSession(StateCodec.decode(s.state), BalancedDice())
+        s.awayStreak.forEachIndexed { i, v -> awayStreak[i] = v }
+        s.leftGame.forEachIndexed { i, v -> leftGame[i] = v }
+        s.rankLabels.forEachIndexed { i, v -> rankLabels[i] = v }
+        graceUntil = System.currentTimeMillis() + 20_000
+        busyUntil = graceUntil.coerceAtMost(System.currentTimeMillis() + 3_000)
+    }
+
     private val seats = MatchSetup.default(players).colors.map { Seat(it) }.also { s ->
         rankedPlayers?.forEachIndexed { i, u -> s[i].userId = u.id; s[i].name = u.name }
     }
@@ -141,7 +195,7 @@ class Room(
     private val rankLabels = Array(players) { "" }
 
     init {
-        if (rankedPlayers != null) {
+        if (rankedPlayers != null && !restoring) {
             val season = Seasons.current()
             rankedPlayers.forEachIndexed { i, u -> rankLabels[i] = store.ranked(u.id, season).let { r -> r.division?.name ?: "Placement" } }
         }
@@ -170,6 +224,7 @@ class Room(
     }
 
     fun close() { inbox.close() }
+
 
     fun expired(now: Long): Boolean {
         val idle = now - lastActivity
@@ -218,7 +273,7 @@ class Room(
     fun snapshotInfo() = info()
 
     private fun broadcast(m: ServerMsg) { for (set in conns.values) for (c in set) c.send(m) }
-    private fun broadcastRoom() = broadcast(RoomUpdate(info()))
+    private fun broadcastRoom() { broadcast(RoomUpdate(info())); persist() }
 
     // ---------------------------------------------------------------- messages
 
@@ -319,6 +374,7 @@ class Room(
         val idx = s.state.current
         val seat = seats[idx]
         val human = seat.userId != null && !seat.cpu
+        if (human && !connected(seat.userId) && now < graceUntil) return
         when {
             !human -> cpuPlay(now, byCpu = false)
             !connected(seat.userId) -> { if (ranked) markAway(idx); cpuPlay(now, byCpu = true) }   // away: the computer keeps their place warm
@@ -342,6 +398,7 @@ class Room(
     private fun accepted(events: List<GameEvent>, byCpu: Boolean, now: Long) {
         val s = session!!
         broadcast(ResultMsg(s.state.sequence, events, StateCodec.encode(s.state), byCpu))
+        persist()
         deadline = 0L
         // Computer players also "think" a little before acting, so their turns can be followed.
         val think = if (seats[s.state.current].cpu || s.state.isOver) 0.45 else 0.0
@@ -411,6 +468,9 @@ class Room(
     private fun paced(seconds: Double) = (seconds * 1000 * cfg.pace).toLong()
 
     companion object {
+        fun restore(s: RoomSave, store: Store, cfg: Config): Room =
+            Room(s.code, s.groupId, s.hostId, s.players, s.seriesGames, s.board, s.capture, store, cfg,
+                rankedPlayers = if (s.ranked) s.seats.map { User(it.userId ?: "", it.name) } else null, restoring = true).also { it.load(s) }
         /**
          * How long the app takes to animate these events (slightly generous). The server waits this long before the
          * computer acts or the turn timer starts, so everyone sees every move.

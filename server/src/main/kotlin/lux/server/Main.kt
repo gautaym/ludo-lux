@@ -31,6 +31,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import lux.core.net.AuthResponse
@@ -94,10 +95,13 @@ class Limiter(private val max: Int, private val windowMs: Long) {
 fun Application.luxServer(store: Store, cfg: Config, google: TokenVerifier = TokenVerifier { null }, billing: PurchaseVerifier = NoBilling) {
     val log = LoggerFactory.getLogger("lux")
     val scope = CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+    // Stop rooms, timers and matchmaking when the server stops (live rooms are already saved).
+    monitor.subscribe(io.ktor.server.application.ApplicationStopped) { scope.cancel() }
     val rooms = Rooms(store, cfg, scope)
     val guestLimit = Limiter(20, 3_600_000)
     val joinLimit = Limiter(30, 600_000)
     val matchmaker = Matchmaker(store, rooms)
+    rooms.restoreAll().takeIf { it > 0 }?.let { log.info("restored $it live room(s) after restart") }
     scope.launch { while (true) { delay(60_000); rooms.sweep() } }
     scope.launch { while (true) { delay(1_000); runCatching { matchmaker.match() }.onFailure { log.error("matchmaking", it) } } }
 
@@ -128,6 +132,15 @@ fun Application.luxServer(store: Store, cfg: Config, google: TokenVerifier = Tok
 
     routing {
         get("/health") { call.respondText("ok") }
+        // Prometheus-style numbers for monitoring. The reverse proxy keeps this private (see deploy/Caddyfile).
+        get("/metrics") {
+            val c = rooms.counts()
+            val w = matchmaker.waiting()
+            call.respondText(buildString {
+                for (st in lux.core.net.RoomStatus.entries) appendLine("ludolux_rooms{status=\"${st.name.lowercase()}\"} ${c[st] ?: 0}")
+                for (n in listOf(2, 4)) appendLine("ludolux_ranked_waiting{players=\"$n\"} ${w[n] ?: 0}")
+            })
+        }
 
         // ---- accounts
         post("/v1/auth/guest") {

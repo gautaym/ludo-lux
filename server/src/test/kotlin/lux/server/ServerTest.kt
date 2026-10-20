@@ -267,4 +267,42 @@ class ServerTest {
         assertEquals(2, bina.place, "a leaver is placed last")
         assertTrue(bina.delta < 0)
     }
+
+    @Test fun gamesSurviveAServerRestart() {
+        val db = File.createTempFile("lux-restart", ".db").apply { deleteOnExit() }
+        lateinit var mom: AuthResponse
+        lateinit var dad: AuthResponse
+        lateinit var room: RoomInfo
+        fun server(block: suspend (HttpClient) -> Unit) = testApplication {
+            application { luxServer(Store(db.path), Config(publicUrl = "https://ludo.example", turnSeconds = 600, pace = 0.0, tickMs = 5)) }
+            block(createClient { install(ContentNegotiation) { json(Wire.json) }; install(WebSockets) })
+        }
+        // Before the restart: a game starts and a few moves are played, then everybody's connection drops.
+        server { http ->
+            mom = http.guest("Mom"); dad = http.guest("Dad")
+            val group: GroupDetail = http.postAs(mom.token, "/v1/groups", CreateGroupRequest("Home"))
+            http.postAs<GroupDetail>(dad.token, "/v1/groups/join", JoinGroupRequest(group.code))
+            room = http.postAs(mom.token, "/v1/rooms", CreateRoomRequest(group.id, players = 2, seriesGames = 1))
+            withTimeout(60_000) {
+                coroutineScope {
+                    val a = async { http.bot(mom, room.code, host = true, quitAfter = 6) }
+                    val b = async { http.bot(dad, room.code, host = false, quitAfter = 6) }
+                    a.await(); b.await()
+                }
+            }
+        }
+        // After the restart: the same players come back, get the exact position, and finish the game.
+        val log = java.util.Collections.synchronizedList(mutableListOf<String>())
+        server { http ->
+            val end = withTimeout(60_000) {
+                coroutineScope {
+                    val a = async { http.bot(mom, room.code, host = true, log = log) }
+                    val b = async { http.bot(dad, room.code, host = false) }
+                    a.await().also { b.await() }
+                }
+            }
+            assertTrue("snapshot" in log, "the restored game was sent to the returning player: $log")
+            assertEquals(RoomStatus.Done, end.status)
+        }
+    }
 }

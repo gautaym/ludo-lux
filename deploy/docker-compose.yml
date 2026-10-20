@@ -1,0 +1,28 @@
+# Production stack: the game server behind Caddy (automatic HTTPS from Let's Encrypt).
+# Usage on the server:  cd /opt/ludolux && docker compose up -d --build
+services:
+  ludolux:
+    build: { context: .., dockerfile: deploy/Dockerfile }
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data
+      - ./secrets:/secrets:ro
+    # Not published to the internet: only Caddy talks to it.
+    expose: ["8080"]
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    mem_limit: 1500m
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    env_file: .env
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy-data:/data
+      - ./caddy-config:/config
+    depends_on: [ludolux]

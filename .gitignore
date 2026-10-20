@@ -10,3 +10,9 @@ shots/
 dist/
 *.log
 run/
+# Server secrets and data (deploy/)
+deploy/.env
+deploy/data/
+deploy/secrets/
+deploy/caddy-data/
+deploy/caddy-config/
