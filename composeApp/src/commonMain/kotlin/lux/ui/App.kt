@@ -57,6 +57,7 @@ fun LuxApp(app: AppContext, nav: Nav) {
                                 onEffects = { nav.screen = Screen.Showcase },
                                 onFamily = { nav.screen = Screen.Family },
                                 onRanked = { nav.screen = Screen.Ranked },
+                                onShop = { nav.screen = Screen.Shop },
                             )
                         }
                         Screen.Match -> key(nav.matchKey) { MatchHost(app, nav, showcase = false) }
@@ -65,6 +66,7 @@ fun LuxApp(app: AppContext, nav: Nav) {
                         is Screen.Group -> Box(Modifier.safeDrawingPadding()) { GroupScreen(nav, screen.id) }
                         is Screen.Room -> RoomScreen(nav, screen.code, screen.groupId)
                         Screen.Ranked -> Box(Modifier.safeDrawingPadding()) { RankedScreen(nav) }
+                        Screen.Shop -> Box(Modifier.safeDrawingPadding()) { ShopScreen(nav) }
                     }
                 }
             }
@@ -84,7 +86,7 @@ private fun MatchHost(app: AppContext, nav: Nav, showcase: Boolean) {
     /** Discard the saved position when a game is restarted from the pause menu. */
     var fresh by remember { mutableStateOf(false) }
     var last by remember { mutableStateOf<GameResult?>(null) }
-    val style = BoardStyles.get(app.settings.board)
+    val style = BoardStyles.get(app.shop.board(app.settings.board))
     val stage = remember(round) { Stage(app, style) }
     val director = remember(round) { MatchDirector(stage) }
     var paused by remember(round) { mutableStateOf(false) }
@@ -96,11 +98,12 @@ private fun MatchHost(app: AppContext, nav: Nav, showcase: Boolean) {
         val seats = series.seats.map { SeatConfig(it.color, it.cpu, CpuLevel.entries[it.level.coerceIn(0, 2)], it.name) }
         // Mid-series, last place in a game gets "Next round!"; the Loser sign waits for the end of the series.
         director.softLastPlace = !series.isFinal(game) && series.games > 1
+        director.allowedCaptures = app.shop.allowedCaptures()
         director.onProgress = { st -> store.saveGame(game, st) }
         val resume = if (fresh) null else store.savedGame(game)
         fresh = false
         director.start(
-            seats, RuleOptions(sixPityTurns = if (app.settings.luckySix) 4 else 0), app.settings.capture, app.settings.balancedDice,
+            seats, RuleOptions(sixPityTurns = if (app.settings.luckySix) 4 else 0), app.shop.capture(app.settings.capture), app.settings.balancedDice,
             startSeat = series.startSeat(game), resume = resume,
         )
         // The top bar already shows "Game 2/3"; only the double-points final gets announced.

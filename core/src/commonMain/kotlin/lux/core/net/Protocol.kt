@@ -82,6 +82,26 @@ data class CreateRoomRequest(
 
 @Serializable data class ErrorResponse(val error: String)
 
+// ---------------------------------------------------------------- shop
+
+/**
+ * What this account may use. [owned] are Google Play product ids; [coveredBy] is the name of the person whose
+ * Family Pass covers this account (if any). [passGroupId] is the group my own Family Pass covers.
+ */
+@Serializable
+data class Entitlements(
+    val owned: List<String> = emptyList(),
+    val coveredBy: String = "",
+    val passActive: Boolean = false,
+    val passGroupId: String = "",
+    val passExpires: Long = 0,
+)
+
+/** Sent after Google Play completes a purchase; the server checks it with Google before unlocking anything. */
+@Serializable data class PurchaseRequest(val productId: String, val purchaseToken: String)
+/** The buyer chooses which family group their Family Pass covers (up to FAMILY_PASS_SEATS members). */
+@Serializable data class FamilyPassRequest(val groupId: String)
+
 // ---------------------------------------------------------------- ranked
 
 /** My ranked standing this season. The skill rating itself stays hidden; only the tier and progress are shown. */

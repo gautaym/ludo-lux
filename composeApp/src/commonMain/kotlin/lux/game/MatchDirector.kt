@@ -79,6 +79,8 @@ class MatchDirector(val stage: Stage) {
     private var lastCapturedBy = intArrayOf(-1, -1, -1, -1)
     private var captureStyle = CaptureStyle.Boom
     private var surprise = false
+    /** Capture effects Surprise may use (the ones this player has). */
+    var allowedCaptures: List<CaptureStyle> = CaptureStyle.entries
     private val cpuRng = Random(Random.nextLong())
     lateinit var dice: QueueDice
         private set
@@ -136,7 +138,7 @@ class MatchDirector(val stage: Stage) {
         val sorted = configs.sortedBy { it.color }
         seats = sorted
         surprise = capture >= CaptureStyle.SURPRISE
-        captureStyle = if (surprise) CaptureStyle.entries.random(stage.rng) else CaptureStyle.entries[capture]
+        captureStyle = if (surprise) allowedCaptures.ifEmpty { CaptureStyle.entries }.random(stage.rng) else CaptureStyle.entries[capture]
         lastCapturedBy = intArrayOf(-1, -1, -1, -1)
         finishedCount.fill(0)
         awarded.fill(false)
@@ -590,9 +592,8 @@ class MatchDirector(val stage: Stage) {
         else if (revenge) say("Revenge!", style.seat[attacker.color])
         if (surprise) {
             // A different capture each time, never the same one twice running.
-            var next = CaptureStyle.entries[stage.rng.nextInt(CaptureStyle.entries.size - 1)]
-            if (next.ordinal >= captureStyle.ordinal) next = CaptureStyle.entries[next.ordinal + 1]
-            captureStyle = next
+            val pool = allowedCaptures.ifEmpty { CaptureStyle.entries }.filter { it != captureStyle }
+            if (pool.isNotEmpty()) captureStyle = pool[stage.rng.nextInt(pool.size)]
         }
         stage.playCapture(captureStyle, ctx)
     }

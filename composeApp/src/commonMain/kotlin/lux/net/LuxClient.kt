@@ -130,6 +130,13 @@ class LuxClient(private val prefs: Prefs) {
     suspend fun createRoom(req: CreateRoomRequest): RoomInfo =
         call { http.post(url("/v1/rooms")) { bearerAuth(token); contentType(ContentType.Application.Json); setBody(req) } }
 
+    // ---- shop
+    suspend fun entitlements(): lux.core.net.Entitlements = call { http.get(url("/v1/me/entitlements")) { bearerAuth(token) } }
+    suspend fun purchase(productId: String, purchaseToken: String): lux.core.net.Entitlements =
+        call { http.post(url("/v1/purchases")) { bearerAuth(token); contentType(ContentType.Application.Json); setBody(lux.core.net.PurchaseRequest(productId, purchaseToken)) } }
+    suspend fun setFamilyPassGroup(groupId: String): lux.core.net.Entitlements =
+        call { http.post(url("/v1/family-pass")) { bearerAuth(token); contentType(ContentType.Application.Json); setBody(lux.core.net.FamilyPassRequest(groupId)) } }
+
     // ---- ranked
     suspend fun rankedMe(): lux.core.net.RankedProfile = call { http.get(url("/v1/ranked/me")) { bearerAuth(token) } }
     suspend fun leaderboard(): lux.core.net.Leaderboard = call { http.get(url("/v1/ranked/leaderboard")) { bearerAuth(token) } }

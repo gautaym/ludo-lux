@@ -261,6 +261,20 @@ fun DrawScope.playIcon(c: Color) {
     drawPath(p, c)
 }
 
+/** Shopping bag (the shop). */
+fun DrawScope.bagIcon(c: Color) {
+    val w = size.width; val h = size.height
+    drawRoundRect(c, Offset(w * 0.08f, h * 0.32f), Size(w * 0.84f, h * 0.64f), CornerRadius(w * 0.12f))
+    drawArc(c, 180f, 180f, false, Offset(w * 0.28f, h * 0.04f), Size(w * 0.44f, h * 0.5f), style = Stroke(w * 0.11f))
+}
+
+/** Padlock (locked item). */
+fun DrawScope.lockIcon(c: Color) {
+    val w = size.width; val h = size.height
+    drawRoundRect(c, Offset(w * 0.1f, h * 0.45f), Size(w * 0.8f, h * 0.55f), CornerRadius(w * 0.12f))
+    drawArc(c, 180f, 180f, false, Offset(w * 0.24f, h * 0.06f), Size(w * 0.52f, h * 0.7f), style = Stroke(w * 0.14f))
+}
+
 fun DrawScope.sparkIcon(c: Color) {
     drawPath(lux.board.starPath(center.x, center.y, size.minDimension / 2, size.minDimension / 7, 4, 0f), c)
 }

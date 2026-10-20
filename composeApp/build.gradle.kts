@@ -36,6 +36,7 @@ kotlin {
             implementation(libs.androidx.credentials)
             implementation(libs.androidx.credentials.play)
             implementation(libs.googleid)
+            implementation(libs.billing.ktx)
         }
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)

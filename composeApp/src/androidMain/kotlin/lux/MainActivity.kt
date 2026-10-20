@@ -9,6 +9,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.activity.ComponentActivity
+import com.android.billingclient.api.queryProductDetails
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -113,6 +114,8 @@ class AndroidPlatform(context: Context, private val activity: android.app.Activi
 
     override suspend fun googleIdToken(): String? {
         val clientId = activity.getString(lux.app.R.string.google_web_client_id)
+        // Debug builds without a client id use a test identity (accepted only by a server in AUTH_MODE=test).
+        if (clientId.isBlank() && testStore) return "test:" + prefs.getString("testGoogleId", "").ifEmpty { kotlin.random.Random.nextLong(1, Long.MAX_VALUE).toString().also { prefs.putString("testGoogleId", it) } } + ":Player"
         if (clientId.isBlank()) throw lux.net.NetError("Google sign-in is not set up in this test version yet. Use \"Play as guest\" for now.")
         val option = com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption.Builder(clientId).build()
         val request = androidx.credentials.GetCredentialRequest.Builder().addCredentialOption(option).build()
@@ -129,6 +132,74 @@ class AndroidPlatform(context: Context, private val activity: android.app.Activi
         } catch (e: androidx.credentials.exceptions.GetCredentialException) {
             throw lux.net.NetError("Google sign-in did not work. Please try again.")
         }
+    }
+
+    // ---------------------------------------------------------------- Google Play Billing
+
+    /** Debug builds (installed from a file) use the test store, so the shop can be tried at home before Play is set up. */
+    private val testStore = (activity.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    private var pending: kotlinx.coroutines.CompletableDeferred<String?>? = null
+    private val billing by lazy {
+        com.android.billingclient.api.BillingClient.newBuilder(activity)
+            .setListener { result, purchases ->
+                val done = pending ?: return@setListener
+                pending = null
+                when (result.responseCode) {
+                    com.android.billingclient.api.BillingClient.BillingResponseCode.OK ->
+                        done.complete(purchases?.firstOrNull { it.purchaseState == com.android.billingclient.api.Purchase.PurchaseState.PURCHASED }?.purchaseToken
+                            ?: purchases?.firstOrNull()?.let { "" })
+                    com.android.billingclient.api.BillingClient.BillingResponseCode.USER_CANCELED -> done.complete(null)
+                    else -> done.completeExceptionally(lux.net.NetError("The purchase did not go through. You were not charged."))
+                }
+            }
+            .enablePendingPurchases(com.android.billingclient.api.PendingPurchasesParams.newBuilder().enableOneTimeProducts().build())
+            .build()
+    }
+
+    private suspend fun connected(): Boolean {
+        if (billing.isReady) return true
+        val ready = kotlinx.coroutines.CompletableDeferred<Boolean>()
+        billing.startConnection(object : com.android.billingclient.api.BillingClientStateListener {
+            override fun onBillingSetupFinished(r: com.android.billingclient.api.BillingResult) { ready.complete(r.responseCode == com.android.billingclient.api.BillingClient.BillingResponseCode.OK) }
+            override fun onBillingServiceDisconnected() { if (!ready.isCompleted) ready.complete(false) }
+        })
+        return ready.await()
+    }
+
+    private suspend fun details(ids: List<String>, type: String): List<com.android.billingclient.api.ProductDetails> {
+        val params = com.android.billingclient.api.QueryProductDetailsParams.newBuilder().setProductList(ids.map {
+            com.android.billingclient.api.QueryProductDetailsParams.Product.newBuilder().setProductId(it).setProductType(type).build()
+        }).build()
+        return billing.queryProductDetails(params).productDetailsList.orEmpty()
+    }
+
+    override suspend fun prices(): Map<String, String> {
+        if (testStore || !connected()) return emptyMap()
+        val subs = lux.core.Catalog.products.filter { it.subscription }.map { it.id }
+        val inapp = lux.core.Catalog.products.filter { !it.subscription }.map { it.id }
+        val out = HashMap<String, String>()
+        for (d in details(inapp, com.android.billingclient.api.BillingClient.ProductType.INAPP)) d.oneTimePurchaseOfferDetails?.formattedPrice?.let { out[d.productId] = it }
+        for (d in details(subs, com.android.billingclient.api.BillingClient.ProductType.SUBS))
+            d.subscriptionOfferDetails?.firstOrNull()?.pricingPhases?.pricingPhaseList?.lastOrNull()?.formattedPrice?.let { out[d.productId] = it }
+        return out
+    }
+
+    override suspend fun purchase(productId: String, subscription: Boolean): String? {
+        if (testStore) return "test:" + productId + "-" + kotlin.random.Random.nextLong(1, Long.MAX_VALUE)
+        if (!connected()) throw lux.net.NetError("Google Play is not available on this phone.")
+        val type = if (subscription) com.android.billingclient.api.BillingClient.ProductType.SUBS else com.android.billingclient.api.BillingClient.ProductType.INAPP
+        val d = details(listOf(productId), type).firstOrNull() ?: throw lux.net.NetError("This item is not in the shop yet.")
+        val pp = com.android.billingclient.api.BillingFlowParams.ProductDetailsParams.newBuilder().setProductDetails(d)
+        if (subscription) pp.setOfferToken(d.subscriptionOfferDetails?.firstOrNull()?.offerToken ?: throw lux.net.NetError("This pass is not available yet."))
+        val flow = com.android.billingclient.api.BillingFlowParams.newBuilder().setProductDetailsParamsList(listOf(pp.build())).build()
+        val result = kotlinx.coroutines.CompletableDeferred<String?>()
+        pending = result
+        val launch = billing.launchBillingFlow(activity, flow)
+        if (launch.responseCode != com.android.billingclient.api.BillingClient.BillingResponseCode.OK) { pending = null; throw lux.net.NetError("The shop could not open. Please try again.") }
+        val token = result.await() ?: return null
+        // An empty token means a pending payment (e.g. cash at a store); it unlocks once it completes.
+        if (token.isEmpty()) throw lux.net.NetError("Your payment is pending. The item unlocks as soon as it completes.")
+        return token
     }
 
     fun release() = pool.release()

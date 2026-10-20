@@ -65,8 +65,18 @@ fun main() {
     )
     val store = Store(env["DB_PATH"] ?: "ludolux.db")
     // GOOGLE_CLIENT_IDS: comma-separated OAuth client ids whose sign-in tokens we accept (the app's web client id).
-    val google = GoogleVerifier(env["GOOGLE_CLIENT_IDS"].orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet())
-    embeddedServer(CIO, port = port, host = "0.0.0.0") { luxServer(store, cfg, google) }.start(wait = true)
+    val real = GoogleVerifier(env["GOOGLE_CLIENT_IDS"].orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet())
+    // AUTH_MODE=test (home testing only): also accept "test:<id>:<name>" tokens from debug builds, before Google is set up.
+    val google = if (env["AUTH_MODE"] == "test") TokenVerifier { t ->
+        if (t.startsWith("test:")) t.split(':').let { GoogleIdentity("test-" + it.getOrElse(1) { "x" }, it.getOrElse(2) { "Player" }, "") } else real.verify(t)
+    } else real
+    // BILLING_MODE: "google" (needs PLAY_PACKAGE and PLAY_SERVICE_ACCOUNT, a JSON key file), "test" (home testing only), or off.
+    val billing = when (env["BILLING_MODE"]) {
+        "google" -> GooglePlayBilling(env["PLAY_PACKAGE"] ?: "com.ludolux.kmp", java.nio.file.Path.of(env["PLAY_SERVICE_ACCOUNT"] ?: "play-service-account.json"))
+        "test" -> TestBilling
+        else -> NoBilling
+    }
+    embeddedServer(CIO, port = port, host = "0.0.0.0") { luxServer(store, cfg, google, billing) }.start(wait = true)
 }
 
 class HttpError(val status: HttpStatusCode, message: String) : Exception(message)
@@ -81,7 +91,7 @@ class Limiter(private val max: Int, private val windowMs: Long) {
     }
 }
 
-fun Application.luxServer(store: Store, cfg: Config, google: TokenVerifier = TokenVerifier { null }) {
+fun Application.luxServer(store: Store, cfg: Config, google: TokenVerifier = TokenVerifier { null }, billing: PurchaseVerifier = NoBilling) {
     val log = LoggerFactory.getLogger("lux")
     val scope = CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
     val rooms = Rooms(store, cfg, scope)
@@ -197,6 +207,33 @@ fun Application.luxServer(store: Store, cfg: Config, google: TokenVerifier = Tok
             val room = rooms.get(Wire.cleanCode(call.parameters["code"]!!)) ?: throw HttpError(HttpStatusCode.NotFound, "That game has ended.")
             store.addMember(room.groupId, u.id)
             call.respond(room.snapshotInfo())
+        }
+
+        // ---- shop: everything sold is cosmetic; purchases are checked with Google before anything unlocks
+        fun entitlements(u: User): lux.core.net.Entitlements {
+            val owned = store.owned(u.id)
+            val pass = owned[lux.core.Catalog.FAMILY_PASS]
+            return lux.core.net.Entitlements(owned.keys.toList(), store.coveredBy(u.id).orEmpty(), pass != null, store.familyPassGroup(u.id).orEmpty(), pass ?: 0)
+        }
+        get("/v1/me/entitlements") { call.respond(entitlements(call.user())) }
+        post("/v1/purchases") {
+            val u = call.user()
+            // Purchases need a saved account, so they can never be lost with a phone.
+            if (!u.google) throw HttpError(HttpStatusCode.Forbidden, "Please save your account with Google first, so your purchase is never lost.")
+            val req = call.receive<lux.core.net.PurchaseRequest>()
+            val product = lux.core.Catalog.product(req.productId) ?: throw HttpError(HttpStatusCode.BadRequest, "Unknown item.")
+            val ok = billing.verify(product.id, req.purchaseToken, product.subscription) ?: throw HttpError(HttpStatusCode.PaymentRequired, "The purchase could not be confirmed. If you were charged, it will be refunded automatically.")
+            if (!store.recordPurchase(u.id, product.id, req.purchaseToken, ok.orderId, ok.expires)) throw HttpError(HttpStatusCode.Conflict, "This purchase belongs to another account.")
+            log.info("purchase ${product.id} by ${u.id} (${ok.orderId})")
+            call.respond(entitlements(u))
+        }
+        post("/v1/family-pass") {
+            val u = call.user()
+            val req = call.receive<lux.core.net.FamilyPassRequest>()
+            if (store.owned(u.id)[lux.core.Catalog.FAMILY_PASS] == null) throw HttpError(HttpStatusCode.Forbidden, "You don't have an active Family Pass.")
+            if (!store.isMember(req.groupId, u.id)) throw HttpError(HttpStatusCode.Forbidden, "You are not in this group.")
+            store.setFamilyPassGroup(u.id, req.groupId)
+            call.respond(entitlements(u))
         }
 
         // ---- ranked (separate from family groups)

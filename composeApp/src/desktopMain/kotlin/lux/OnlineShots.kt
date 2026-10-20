@@ -48,6 +48,7 @@ class TestPlatform : lux.app.Platform by SilentPlatform {
     override val prefs = MemPrefs()
     val shared = ArrayList<String>()
     override fun share(text: String) { shared += text }
+    override suspend fun googleIdToken(): String? = "test:desktop-" + prefs.getString("userName", "mom") + ":Mom"
 }
 
 /**
@@ -182,4 +183,39 @@ fun rankedShots(server: String, tap: androidx.compose.ui.geometry.Offset?, secon
     bots.cancel()
     print(log)
     println("shots/ranked: done")
+}
+
+/** Shop end to end against a server in BILLING_MODE=test AUTH_MODE=test: menu locks, shop, Family Pass bought and shared. */
+@OptIn(ExperimentalComposeUiApi::class, kotlinx.coroutines.DelicateCoroutinesApi::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+fun shopShots(server: String) {
+    val ui = newSingleThreadContext("ui")
+    val dir = File("shots/shop").apply { deleteRecursively(); mkdirs() }
+    val platform = TestPlatform()
+    val app = AppContext(platform)
+    app.net.changeServer(server)
+    val nav = Nav()
+    val log = StringBuilder()
+    runBlocking(ui) {
+        app.net.signInWithGoogle(platform.googleIdToken()!!)
+        val g = app.net.createGroup("Sharma Family")
+        val dadPlatform = TestPlatform().also { it.prefs.putString("userName", "dad") }
+        val dad = LuxClient(dadPlatform.prefs).apply { changeServer(server); signInWithGoogle("test:desktop-dad:Dad"); joinGroup(g.code) }
+        fun shot(name: String, seconds: Float = 2.5f) {
+            ImageComposeScene(540, 1170, Density(1.375f), coroutineContext = ui) { LuxApp(app, nav) }.use { scene ->
+                val start = System.nanoTime()
+                while ((System.nanoTime() - start) / 1e9f < seconds) { scene.render(System.nanoTime() - start); kotlinx.coroutines.runBlocking { } ; Thread.sleep(16) }
+                File(dir, "$name.png").writeBytes(scene.render(System.nanoTime() - start).encodeToData(EncodedImageFormat.PNG)!!.bytes)
+            }
+        }
+        nav.screen = Screen.Menu; shot("1_menu_locked")
+        nav.screen = Screen.Shop; shot("2_shop_before")
+        val bought = app.shop.buy(lux.core.Catalog.product(lux.core.Catalog.FAMILY_PASS)!!, platform)
+        app.shop.apply(app.net.setFamilyPassGroup(g.id))
+        log.appendLine("bought=$bought passActive=${app.shop.passActive} group=${app.shop.passGroupId == g.id}")
+        log.appendLine("dad covered by: '${dad.entitlements().coveredBy}'")
+        nav.screen = Screen.Shop; shot("3_shop_after")
+        nav.screen = Screen.Menu; shot("4_menu_unlocked")
+    }
+    print(log)
+    println("shots/shop: done")
 }

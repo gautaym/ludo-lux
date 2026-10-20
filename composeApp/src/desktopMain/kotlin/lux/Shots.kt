@@ -77,6 +77,7 @@ fun cpuSeats(n: Int = 4, human: Boolean = false): List<SeatConfig> {
 
 fun main(args: Array<String>) {
     if (args.firstOrNull() == "ranked") { rankedShots(args[1], args.getOrNull(3)?.let { androidx.compose.ui.geometry.Offset(args[2].toFloat(), it.toFloat()) }, args.getOrNull(4)?.toFloat() ?: 4f); return }
+    if (args.firstOrNull() == "shop") { shopShots(args[1]); return }
     if (args.firstOrNull() == "online") { onlineShots(args.getOrElse(1) { "http://localhost:8090" }); return }
     val want = args.toSet().ifEmpty { setOf("menu", "boards") }
     if ("menu" in want) record("menu", 1.2f, 1f, listOf(1.1f)) { LuxApp(AppContext(SilentPlatform), Nav()) }

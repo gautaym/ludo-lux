@@ -31,6 +31,13 @@ interface Platform {
      * Throws [lux.net.NetError] with a friendly message if sign-in is not available.
      */
     suspend fun googleIdToken(): String? = throw lux.net.NetError("Google sign-in is not available here.")
+    /**
+     * Runs a store purchase and returns its purchase token (null if the player cancelled). The default is the test
+     * store: it "buys" instantly with a "test:" token, which only a server in BILLING_MODE=test accepts.
+     */
+    suspend fun purchase(productId: String, subscription: Boolean): String? = "test:" + productId + "-" + kotlin.random.Random.nextLong(1, Long.MAX_VALUE)
+    /** Local prices from the store, by product id (empty if unknown). */
+    suspend fun prices(): Map<String, String> = emptyMap()
 }
 
 /** Used by previews and screenshots: silent, and remembers settings only in memory. */
@@ -151,6 +158,7 @@ class AppContext(val platform: Platform) {
     val settings = Settings(platform.prefs)
     val series = SeriesStore(platform.prefs)
     val net = lux.net.LuxClient(platform.prefs)
+    val shop = ShopState(platform.prefs, net)
 
     fun sfx(id: SfxId, volume: Float = 1f, pitch: Float = 1f) { if (settings.sound) platform.play(id, volume, pitch) }
     fun haptic(s: Haptic) { if (settings.haptics) platform.vibrate(s) }
@@ -185,4 +193,6 @@ sealed interface Screen {
     data class Room(val code: String, val groupId: String) : Screen
     /** Ranked: my tier, find a match, the season leaderboard. */
     data object Ranked : Screen
+    /** The shop: Family Pass, Unlock all, boards and effects. */
+    data object Shop : Screen
 }

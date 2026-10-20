@@ -65,7 +65,7 @@ import lux.theme.BoardStyles
 import kotlin.math.sin
 
 @Composable
-fun MenuScreen(onPlay: () -> Unit, onContinue: () -> Unit, onEffects: () -> Unit, onFamily: () -> Unit, onRanked: () -> Unit) {
+fun MenuScreen(onPlay: () -> Unit, onContinue: () -> Unit, onEffects: () -> Unit, onFamily: () -> Unit, onRanked: () -> Unit, onShop: () -> Unit) {
     val app = LocalApp.current
     val s = app.settings
     val st = BoardStyles.get(s.board)
@@ -81,6 +81,7 @@ fun MenuScreen(onPlay: () -> Unit, onContinue: () -> Unit, onEffects: () -> Unit
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    RoundIcon(onShop, size = 50.dp) { bagIcon(it) }
                     Spacer(Modifier.weight(1f))
                     RoundIcon({ showSettings = true }, size = 50.dp) { gearIcon(it) }
                 }
@@ -99,7 +100,7 @@ fun MenuScreen(onPlay: () -> Unit, onContinue: () -> Unit, onEffects: () -> Unit
                     }
                     Panel(Modifier.fillMaxWidth()) {
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            Section("Board") { BoardPicker() }
+                            Section("Board") { BoardPicker(onShop) }
                             Section("Pieces") { PiecePicker(st, t) }
                         }
                     }
@@ -109,7 +110,10 @@ fun MenuScreen(onPlay: () -> Unit, onContinue: () -> Unit, onEffects: () -> Unit
                                 val names = CaptureStyle.entries.map { it.title } + "Surprise"
                                 for (row in names.indices.chunked(4)) {
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        for (i in row) Chip(names[i], s.capture == i, { s.capture = i })
+                                        for (i in row) {
+                                            val open = app.shop.unlocked(lux.core.Catalog.captureItem(i))
+                                            Chip(if (open) names[i] else "${names[i]} 🔒", s.capture == i && open, { if (open) s.capture = i else onShop() })
+                                        }
                                     }
                                 }
                             }
@@ -216,17 +220,18 @@ private fun PiecePicker(st: lux.theme.BoardStyle, t: Float) {
 
 /** Live previews of every board (the real artwork, painted small). */
 @Composable
-private fun BoardPicker() {
+private fun BoardPicker(onShop: () -> Unit) {
     val app = LocalApp.current
     val px = with(LocalDensity.current) { 104.dp.roundToPx() }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         for (row in BoardStyles.all.chunked(3)) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 for (b in row) {
-                    val on = app.settings.board == b.id
+                    val open = app.shop.unlocked(lux.core.Catalog.boardItem(b.id))
+                    val on = app.settings.board == b.id && open
                     val k by animateFloatAsState(if (on) 1f else 0f)
                     val img = remember(b.id, px) { paintBoard(b, px) }
-                    val click = tap { app.settings.board = b.id }
+                    val click = tap { if (open) app.settings.board = b.id else onShop() }
                     Column(
                         Modifier.weight(1f).clip(RoundedCornerShape(16.dp))
                             .background(lerp(Color(0x33000000), Color(0x55FFC94A), k))
@@ -236,7 +241,12 @@ private fun BoardPicker() {
                     ) {
                         Image(img, b.name, Modifier.fillMaxWidth().aspectRatio(1f).scale(0.94f + 0.06f * k), filterQuality = FilterQuality.High)
                         Spacer(Modifier.height(4.dp))
-                        Label(b.name, 18.sp, if (on) Palette.gold else Palette.text, display = true)
+                        if (open) Label(b.name, 18.sp, if (on) Palette.gold else Palette.text, display = true)
+                        else Row(verticalAlignment = Alignment.CenterVertically) {
+                            Canvas(Modifier.size(14.dp)) { lockIcon(Palette.gold) }
+                            Spacer(Modifier.width(4.dp))
+                            Label(b.name, 18.sp, Palette.textDim, display = true)
+                        }
                     }
                 }
                 repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }

@@ -403,7 +403,7 @@ fun GroupScreen(nav: Nav, groupId: String) {
                 busy = true
                 scope.launch {
                     try {
-                        val room = net.createRoom(CreateRoomRequest(groupId, players, games, s.board, s.capture))
+                        val room = net.createRoom(CreateRoomRequest(groupId, players, games, app.shop.board(s.board), app.shop.capture(s.capture)))
                         newGame = false
                         nav.screen = Screen.Room(room.code, groupId)
                     } catch (e: NetError) { error = e.message; newGame = false }

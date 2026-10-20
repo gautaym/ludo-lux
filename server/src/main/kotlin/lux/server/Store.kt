@@ -43,6 +43,11 @@ class Store(path: String) {
             st.execute("CREATE TABLE IF NOT EXISTS series_wins(group_id TEXT NOT NULL REFERENCES groups(id), user_id TEXT NOT NULL REFERENCES users(id), at INTEGER NOT NULL)")
             st.execute("CREATE TABLE IF NOT EXISTS ranked(user_id TEXT PRIMARY KEY REFERENCES users(id), rating REAL NOT NULL, games INTEGER NOT NULL, wins INTEGER NOT NULL, floor_tier INTEGER NOT NULL, shield INTEGER NOT NULL, peak INTEGER NOT NULL, season TEXT NOT NULL)")
             st.execute("CREATE INDEX IF NOT EXISTS ranked_board ON ranked(season, rating)")
+            // Purchases: each Google Play token belongs to exactly one account.
+            st.execute("CREATE TABLE IF NOT EXISTS purchases(token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), product TEXT NOT NULL, order_id TEXT NOT NULL, expires INTEGER NOT NULL, created INTEGER NOT NULL)")
+            st.execute("CREATE INDEX IF NOT EXISTS purchases_user ON purchases(user_id)")
+            // Which family group each Family Pass owner chose to cover.
+            st.execute("CREATE TABLE IF NOT EXISTS family_pass(owner TEXT PRIMARY KEY REFERENCES users(id), group_id TEXT NOT NULL REFERENCES groups(id))")
             st.execute("CREATE INDEX IF NOT EXISTS gp_user ON game_players(user_id)")
             st.execute("CREATE INDEX IF NOT EXISTS games_group ON games(group_id, finished)")
         }
@@ -203,6 +208,62 @@ class Store(path: String) {
                 }
             }
         }.sortedWith(compareByDescending<MemberStanding> { it.points }.thenByDescending { it.wins }.thenBy { it.games }.thenBy { it.name })
+    }
+
+    // ---------------- shop
+
+    /**
+     * Records a verified purchase. Returns false if this purchase token is already claimed by another account
+     * (one purchase can never unlock two accounts). Renewals of a subscription update its expiry.
+     */
+    @Synchronized fun recordPurchase(userId: String, product: String, token: String, orderId: String, expires: Long): Boolean {
+        val h = hash(token)
+        val owner = db.prepareStatement("SELECT user_id FROM purchases WHERE token_hash = ?").use { it.setString(1, h); it.executeQuery().use { r -> if (r.next()) r.getString(1) else null } }
+        if (owner != null && owner != userId) return false
+        db.prepareStatement("INSERT OR REPLACE INTO purchases(token_hash, user_id, product, order_id, expires, created) VALUES(?,?,?,?,?,?)").use {
+            it.setString(1, h); it.setString(2, userId); it.setString(3, product); it.setString(4, orderId); it.setLong(5, expires); it.setLong(6, now()); it.executeUpdate()
+        }
+        return true
+    }
+
+    /** Products this user owns right now (subscriptions only while unexpired), with the latest expiry per product. */
+    @Synchronized fun owned(userId: String, at: Long = now()): Map<String, Long> =
+        db.prepareStatement("SELECT product, MAX(expires) FROM purchases WHERE user_id = ? AND (expires = 0 OR expires > ?) GROUP BY product").use {
+            it.setString(1, userId); it.setLong(2, at)
+            it.executeQuery().use { r -> buildMap { while (r.next()) put(r.getString(1), r.getLong(2)) } }
+        }
+
+    @Synchronized fun setFamilyPassGroup(owner: String, groupId: String) {
+        db.prepareStatement("INSERT OR REPLACE INTO family_pass(owner, group_id) VALUES(?,?)").use { it.setString(1, owner); it.setString(2, groupId); it.executeUpdate() }
+    }
+
+    @Synchronized fun familyPassGroup(owner: String): String? =
+        db.prepareStatement("SELECT group_id FROM family_pass WHERE owner = ?").use { it.setString(1, owner); it.executeQuery().use { r -> if (r.next()) r.getString(1) else null } }
+
+    /**
+     * The name of whoever's active Family Pass covers [userId], if any. A pass covers the first
+     * [lux.core.Catalog.FAMILY_PASS_SEATS] members of its group: the owner, then members in the order they joined.
+     */
+    @Synchronized fun coveredBy(userId: String, at: Long = now()): String? {
+        val sql = """
+            SELECT fp.owner, u.name, fp.group_id FROM family_pass fp
+            JOIN users u ON u.id = fp.owner
+            JOIN members m ON m.group_id = fp.group_id AND m.user_id = ?
+            WHERE EXISTS (SELECT 1 FROM purchases p WHERE p.user_id = fp.owner AND p.product = ? AND p.expires > ?)
+        """.trimIndent()
+        val passes = db.prepareStatement(sql).use {
+            it.setString(1, userId); it.setString(2, lux.core.Catalog.FAMILY_PASS); it.setLong(3, at)
+            it.executeQuery().use { r -> buildList { while (r.next()) add(Triple(r.getString(1), r.getString(2), r.getString(3))) } }
+        }
+        for ((owner, name, group) in passes) {
+            if (owner == userId) continue   // the owner has the pass itself; "covered by" is for the others
+            val seats = db.prepareStatement("SELECT user_id FROM members WHERE group_id = ? ORDER BY (user_id = ?) DESC, joined ASC LIMIT ?").use {
+                it.setString(1, group); it.setString(2, owner); it.setInt(3, lux.core.Catalog.FAMILY_PASS_SEATS)
+                it.executeQuery().use { r -> buildList { while (r.next()) add(r.getString(1)) } }
+            }
+            if (userId in seats) return name
+        }
+        return null
     }
 
     // ---------------- ranked (separate from groups)
