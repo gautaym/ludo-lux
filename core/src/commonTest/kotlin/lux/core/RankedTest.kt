@@ -16,6 +16,9 @@ class RankedTest {
         assertEquals("Champion", Ranked.Division.of(1450.0).name)
         assertEquals("Champion", Ranked.Division.of(3000.0).name)
         for (i in 0..15) assertEquals(i, Ranked.Division.ofIndex(i).index)
+        // Players see stars: more is better.
+        assertEquals(1, Ranked.starsOf("Gold III")); assertEquals(2, Ranked.starsOf("Gold II")); assertEquals(3, Ranked.starsOf("Gold I"))
+        assertEquals(0, Ranked.starsOf("Champion")); assertEquals("Gold", Ranked.tierWord("Gold II"))
     }
 
     @Test fun placingAboveSomeoneGainsAndChangesBalance() {

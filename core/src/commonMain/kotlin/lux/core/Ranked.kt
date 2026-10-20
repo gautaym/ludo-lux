@@ -11,11 +11,12 @@ import kotlin.math.roundToInt
  * Rating: Elo extended to 2-4 players. Each pair of players counts as a head-to-head result (whoever placed higher
  * "won" it), so coming 2nd of 4 still gains against the two below. New players move faster (placement).
  * Protections keep it from feeling harsh: tiers stay hidden for the first [PLACEMENT_GAMES]; reaching a new tier
- * gives a [SHIELD_GAMES]-game shield against dropping straight back out of it; seasons reset gently each month.
+ * gives a [SHIELD_GAMES]-game shield against dropping straight back out of it; seasons (calendar quarters) reset gently.
  */
 object Ranked {
     const val START = 925.0
-    const val PLACEMENT_GAMES = 10
+    /** Games before the tier is shown ("finding your level"). Kept short so new players see a rank quickly. */
+    const val PLACEMENT_GAMES = 5
     const val SHIELD_GAMES = 3
     /** Points per step within a tier, and steps per tier. */
     const val STEP = 50
@@ -49,6 +50,15 @@ object Ranked {
     }
 
     private fun roman(n: Int) = when (n) { 1 -> "I"; 2 -> "II"; 3 -> "III"; else -> "" }
+
+    /**
+     * Stars shown for a division name like "Gold II": more stars = better (III = 1 star, II = 2, I = 3).
+     * Champion shows none (it has a crown). Roman numerals are kept on the wire; players only ever see stars.
+     */
+    fun starsOf(division: String): Int = when (division.substringAfterLast(' ', "")) { "III" -> 1; "II" -> 2; "I" -> 3; else -> 0 }
+
+    /** The tier word of a division name ("Gold II" -> "Gold"). */
+    fun tierWord(division: String): String = division.substringBefore(' ')
 
     /** One player's ranked record for the current season. */
     data class Record(

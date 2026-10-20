@@ -8,11 +8,17 @@ import java.time.temporal.ChronoUnit
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 
-/** Ranked seasons are calendar months (UTC), named like "2026-10". */
+/**
+ * Ranked seasons are calendar quarters (UTC), named like "2026 Q4". Three months is long enough that a reset never
+ * feels like losing progress, short enough to keep things fresh.
+ */
 object Seasons {
-    fun current(today: LocalDate = LocalDate.now(ZoneOffset.UTC)): String = "%04d-%02d".format(today.year, today.monthValue)
-    fun daysLeft(today: LocalDate = LocalDate.now(ZoneOffset.UTC)): Int =
-        ChronoUnit.DAYS.between(today, today.withDayOfMonth(1).plusMonths(1)).toInt()
+    private fun quarter(d: LocalDate) = (d.monthValue - 1) / 3 + 1
+    fun current(today: LocalDate = LocalDate.now(ZoneOffset.UTC)): String = "%04d Q%d".format(today.year, quarter(today))
+    fun daysLeft(today: LocalDate = LocalDate.now(ZoneOffset.UTC)): Int {
+        val start = LocalDate.of(today.year, (quarter(today) - 1) * 3 + 1, 1)
+        return ChronoUnit.DAYS.between(today, start.plusMonths(3)).toInt()
+    }
 }
 
 /**

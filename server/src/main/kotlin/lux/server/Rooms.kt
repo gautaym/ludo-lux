@@ -401,6 +401,7 @@ class Room(
                 demoted = newDiv != null && oldDiv != null && newDiv.index < oldDiv.index,
                 placement = if (rec.placed && old.placed) 0 else rec.games.coerceAtMost(lux.core.Ranked.PLACEMENT_GAMES),
                 left = leftGame[i],
+                progressBefore = old.progress, progressAfter = rec.progress,
             )
         }
         broadcast(lux.core.net.RankedResult(changes))

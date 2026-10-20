@@ -93,6 +93,29 @@ private val PurpleInk = Color(0xFF2E0A3D)
 private fun tierOf(name: String) = Ranked.TIERS.indexOfFirst { name.startsWith(it) }
 
 /**
+ * A rank as players read it: the tier word in its colour, then 1-3 drawn stars ("Gold ★★"). During placement it reads
+ * "Finding your level".
+ */
+@Composable
+fun RankLabel(division: String, size: androidx.compose.ui.unit.TextUnit = 16.sp, color: Color? = null) {
+    val tier = tierOf(division)
+    if (tier < 0) { Label("Finding your level", size, color ?: Palette.textDim); return }
+    val c = color ?: lerp(tierColors[tier].first, Color.White, 0.25f)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Label(Ranked.tierWord(division), size, c, display = true)
+        val stars = Ranked.starsOf(division)
+        if (stars > 0) {
+            Spacer(Modifier.width(4.dp))
+            val px = (size.value * 0.95f).dp
+            Canvas(Modifier.size(px * stars + 2.dp * (stars - 1), px)) {
+                val r = this.size.height / 2
+                for (i in 0 until stars) drawPath(starPath(r + i * (r * 2 + 2.dp.toPx()), r, r, r * 0.45f, 5), Palette.gold)
+            }
+        }
+    }
+}
+
+/**
  * A tier emblem: a faceted shield in the tier's metal, with its step as a numeral. Champion wears a crown;
  * placement is a plain grey shield with a question mark.
  */
@@ -102,7 +125,7 @@ fun TierEmblem(division: String, size: Int, modifier: Modifier = Modifier) {
     val measurer = rememberTextMeasurer()
     val tier = tierOf(division)
     val (hi, lo) = if (tier < 0) placementColors else tierColors[tier]
-    val step = division.substringAfter(' ', "").let { if (division == "Champion") "" else it }
+    val stars = Ranked.starsOf(division)
     val shine = rememberInfiniteTransition()
     val t by shine.animateFloat(0f, 1f, infiniteRepeatable(tween(3200, easing = LinearEasing)))
     Canvas(modifier.size(size.dp)) {
@@ -144,12 +167,21 @@ fun TierEmblem(division: String, size: Int, modifier: Modifier = Modifier) {
             drawPath(crown, Color(0xFF6B3A00), style = Stroke(w * 0.02f))
             drawPath(starPath(w * 0.5f, h * 0.5f, w * 0.2f, w * 0.085f, 5), Color.White)
         }
-        val label = if (tier < 0) "?" else step
-        if (label.isNotEmpty()) {
-            val style = TextStyle(color = Color.White, fontFamily = fonts.display, fontSize = (h * (if (label.length > 2) 0.26f else 0.34f) / density).sp)
-            val m = measurer.measure(label, style)
+        if (tier < 0) {
+            val style = TextStyle(color = Color.White, fontFamily = fonts.display, fontSize = (h * 0.34f / density).sp)
+            val m = measurer.measure("?", style)
             drawText(m, color = lerp(lo, Color.Black, 0.5f), topLeft = Offset(w / 2 - m.size.width / 2f + w * 0.015f, h * 0.48f - m.size.height / 2f + w * 0.02f))
             drawText(m, topLeft = Offset(w / 2 - m.size.width / 2f, h * 0.48f - m.size.height / 2f))
+        } else if (stars > 0) {
+            // One to three stars: more stars = better. Easier to read at a glance than III / II / I.
+            val r = w * (if (stars == 3) 0.1f else 0.115f)
+            val gap = r * 2.15f
+            for (i in 0 until stars) {
+                val cx = w / 2 + (i - (stars - 1) / 2f) * gap
+                val cy = h * 0.48f + if (stars == 3 && i == 1) -r * 0.35f else 0f
+                drawPath(starPath(cx + w * 0.012f, cy + w * 0.015f, r, r * 0.45f, 5), lerp(lo, Color.Black, 0.5f))
+                drawPath(starPath(cx, cy, r, r * 0.45f, 5), Color.White)
+            }
         }
     }
 }
@@ -202,13 +234,12 @@ fun RankedScreen(nav: Nav) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (p == null) Label("Loading...", 20.sp, Palette.textDim)
                     else if (!p.placed) {
-                        Label("Placement", 30.sp, Color.White, display = true)
-                        Label("${p.placementPlayed} of ${p.placementGames} games played", 16.sp, Palette.textDim)
-                        Label("Your rank is revealed after ${p.placementGames} games.", 13.sp, Palette.textDim)
+                        Label("Finding your level", 26.sp, Color.White, display = true)
+                        Label("${p.placementPlayed} of ${p.placementGames} games", 16.sp, Palette.textDim)
+                        Label("Your rank shows after ${p.placementGames} games.", 13.sp, Palette.textDim)
                     } else {
-                        Label(p.division, 32.sp, lerp(tierColors[p.tier].first, Color.White, 0.2f), display = true, shadow = true)
-                        if (p.shield > 0) Label("Protected: ${p.shield} more ${if (p.shield == 1) "game" else "games"}", 14.sp, Color(0xFF86EFAC))
-                        Label("#${p.position} this season  ·  ${p.wins} wins in ${p.games}", 14.sp, Palette.textDim)
+                        RankLabel(p.division, 30.sp)
+                        Label("#${p.position} this season  ·  ${p.wins} wins", 14.sp, Palette.textDim)
                     }
                     if (p != null) {
                         // Progress through the current step (or through placement).
@@ -222,7 +253,7 @@ fun RankedScreen(nav: Nav) {
                 }
             }
         }
-        p?.let { Label("Season ${it.season}  ·  ${it.seasonDaysLeft} days left${if (it.peak.isNotEmpty()) "  ·  Best: ${it.peak}" else ""}", 14.sp, Palette.textDim, align = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
+        p?.let { Label("Season ${it.season}  ·  ${it.seasonDaysLeft} days left", 14.sp, Palette.textDim, align = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
 
         Label("Find a match", 22.sp, Color.White, display = true)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -261,7 +292,10 @@ private fun LeaderRowView(r: LeaderRow) {
                 Label(r.name + if (r.me) " (you)" else "", 18.sp, Color.White, display = true)
                 if (r.tag > 0) Label(" #${r.tag}", 12.sp, Palette.textDim)
             }
-            Label("${r.division}  ·  ${r.wins} wins", 12.sp, Palette.textDim)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RankLabel(r.division, 13.sp)
+                Label("  ·  ${r.wins} wins", 12.sp, Palette.textDim)
+            }
         }
     }
 }
@@ -304,7 +338,7 @@ fun MatchFound(room: RoomInfo, leave: () -> Unit) {
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Label(s.name, 22.sp, Color.White, display = true)
-                        Label(s.rank.ifEmpty { "Placement" }, 14.sp, Palette.textDim)
+                        RankLabel(s.rank.ifEmpty { "Placement" }, 14.sp)
                     }
                     Label(if (s.connected) "Ready" else "Joining...", 14.sp, if (s.connected) Color(0xFF86EFAC) else Palette.textDim)
                 }
@@ -329,16 +363,33 @@ fun RankedResultOverlay(r: RankedResult, st: BoardStyle, me: String, onAgain: ()
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (mine != null) {
                     val title = when {
-                        mine.promoted && mine.before == "Placement" -> "You are ${mine.after}!"
-                        mine.promoted -> "Promoted to ${mine.after}!"
-                        mine.demoted -> "Down to ${mine.after}"
+                        mine.promoted && mine.before == "Placement" -> "Your level is set!"
+                        mine.promoted -> "Moved up!"
+                        mine.demoted -> "Moved down a step"
                         mine.place == 1 -> "You won!"
                         else -> "${ordinalOf(mine.place)} place"
                     }
                     Label(title, 32.sp, if (mine.demoted) Palette.textDim else Palette.gold, display = true, shadow = true, align = TextAlign.Center)
                     TierEmblem(mine.after, 120, Modifier.scale(0.6f + 0.4f * pop.value))
-                    if (mine.placement > 0) Label("Placement ${mine.placement} of ${Ranked.PLACEMENT_GAMES}", 18.sp, Color.White, display = true)
-                    else Label("${if (mine.delta >= 0) "+" else ""}${mine.delta}", 40.sp, if (mine.delta >= 0) Color(0xFF86EFAC) else Color(0xFFFCA5A5), display = true, shadow = true)
+                    RankLabel(mine.after, 24.sp)
+                    if (mine.placement > 0) Label("Finding your level: ${mine.placement} of ${Ranked.PLACEMENT_GAMES}", 17.sp, Color.White)
+                    else {
+                        // The change as movement, not numbers: the bar slides from where it was to where it is now.
+                        val c = tierColors.getOrNull(tierOf(mine.after)) ?: placementColors
+                        val from = if (mine.promoted || mine.demoted) 0f else mine.progressBefore
+                        val bar = from + (mine.progressAfter - from) * pop.value.coerceIn(0f, 1f)
+                        Canvas(Modifier.fillMaxWidth(0.8f).height(16.dp)) {
+                            val r = androidx.compose.ui.geometry.CornerRadius(size.height / 2)
+                            drawRoundRect(Color(0x33FFFFFF), cornerRadius = r)
+                            drawRoundRect(Brush.horizontalGradient(listOf(c.second, c.first)), size = Size(size.width * bar.coerceIn(0.03f, 1f), size.height), cornerRadius = r)
+                        }
+                        Label(when {
+                            mine.promoted -> "Great playing!"
+                            mine.delta > 0 -> "Up! Keep going"
+                            mine.delta < 0 -> "Down a little - next time!"
+                            else -> "No change"
+                        }, 18.sp, if (mine.delta >= 0) Color(0xFF86EFAC) else Color(0xFFFCA5A5), display = true)
+                    }
                 }
                 for (c in r.changes.sortedBy { it.place }) {
                     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (c.userId == me) Color(0x33F0ABFC) else Color(0x33000000)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -347,9 +398,9 @@ fun RankedResultOverlay(r: RankedResult, st: BoardStyle, me: String, onAgain: ()
                         Spacer(Modifier.width(8.dp))
                         Column(Modifier.weight(1f)) {
                             Label(c.name + if (c.left) " (left)" else "", 18.sp, Color.White, display = true)
-                            Label(c.after, 12.sp, Palette.textDim)
+                            RankLabel(c.after, 12.sp)
                         }
-                        if (c.placement == 0) Label("${if (c.delta >= 0) "+" else ""}${c.delta}", 20.sp, if (c.delta >= 0) Color(0xFF86EFAC) else Color(0xFFFCA5A5), display = true)
+                        if (c.placement == 0) Label(if (c.delta > 0) "Up" else if (c.delta < 0) "Down" else "Same", 17.sp, if (c.delta > 0) Color(0xFF86EFAC) else if (c.delta < 0) Color(0xFFFCA5A5) else Palette.textDim, display = true)
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

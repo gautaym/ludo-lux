@@ -170,7 +170,7 @@ fun main(args: Array<String>) {
     }
     if ("rankedresult" in want) {
         val r = lux.core.net.RankedResult(listOf(
-            lux.core.net.RankChange(0, "me", "Asha", 1, 21, "Silver I", "Gold III", promoted = true, demoted = false, placement = 0, left = false),
+            lux.core.net.RankChange(0, "me", "Asha", 1, 21, "Gold III", "Gold II", promoted = true, demoted = false, placement = 0, left = false, progressBefore = 0.8f, progressAfter = 0.2f),
             lux.core.net.RankChange(1, "b", "Bina", 2, 6, "Gold II", "Gold II", promoted = false, demoted = false, placement = 0, left = false),
             lux.core.net.RankChange(2, "c", "Chetan", 3, -9, "Gold III", "Gold III", promoted = false, demoted = false, placement = 0, left = false),
             lux.core.net.RankChange(3, "d", "Dev", 4, -18, "Silver II", "Silver III", promoted = false, demoted = true, placement = 0, left = true),

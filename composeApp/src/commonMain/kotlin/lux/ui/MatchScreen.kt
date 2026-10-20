@@ -257,7 +257,8 @@ private fun PlayerPlate(
                 active -> if (cpu) "Thinking..." else if (local) "Your turn" else "Playing..."
                 else -> badge.ifEmpty { if (cpu) "Computer" else "Player" }
             }
-            Label(sub, 15.sp, if (active) Palette.gold else Palette.textDim, align = if (alignRight) TextAlign.End else TextAlign.Start)
+            if (badge.isNotEmpty() && sub == badge) RankLabel(badge, 15.sp)
+            else Label(sub, 15.sp, if (active) Palette.gold else Palette.textDim, align = if (alignRight) TextAlign.End else TextAlign.Start)
         }
         if (alignRight) { Spacer(Modifier.width(10.dp)); avatar() }
     }

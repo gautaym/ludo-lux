@@ -202,6 +202,9 @@ data class RankChange(
     /** Placement games played, if still in placement (0 otherwise). */
     val placement: Int,
     val left: Boolean,
+    /** Progress bar (0..1 through the step) before and after, so the change is shown as movement, not numbers. */
+    val progressBefore: Float = 0f,
+    val progressAfter: Float = 0f,
 )
 
 /** After a ranked game: everyone's rating changes, tier moves and placement progress. */
