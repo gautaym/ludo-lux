@@ -66,7 +66,7 @@ fun main() {
     )
     val store = Store(env["DB_PATH"] ?: "ludolux.db")
     // GOOGLE_CLIENT_IDS: comma-separated OAuth client ids whose sign-in tokens we accept (the app's web client id).
-    val real = GoogleVerifier(env["GOOGLE_CLIENT_IDS"].orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet())
+    val real = GoogleVerifier((env["GOOGLE_CLIENT_IDS"] ?: LUDOLUX_WEB_CLIENT_ID).split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet())
     // AUTH_MODE=test (home testing only): also accept "test:<id>:<name>" tokens from debug builds, before Google is set up.
     val google = if (env["AUTH_MODE"] == "test") TokenVerifier { t ->
         if (t.startsWith("test:")) t.split(':').let { GoogleIdentity("test-" + it.getOrElse(1) { "x" }, it.getOrElse(2) { "Player" }, "") } else real.verify(t)
@@ -79,6 +79,9 @@ fun main() {
     }
     embeddedServer(CIO, port = port, host = "0.0.0.0") { luxServer(store, cfg, google, billing) }.start(wait = true)
 }
+
+/** The LudoLux "Web application" OAuth client id (public, not a secret). Google sign-in tokens from the app name it. */
+const val LUDOLUX_WEB_CLIENT_ID = "632622233321-16k1sm51356ee5ekgjf15bvl4hh83aii.apps.googleusercontent.com"
 
 class HttpError(val status: HttpStatusCode, message: String) : Exception(message)
 
