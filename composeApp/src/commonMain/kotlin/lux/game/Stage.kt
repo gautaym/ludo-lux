@@ -119,6 +119,9 @@ class Stage(val app: AppContext, var style: BoardStyle) {
 
     // ---------------------------------------------------------------- things on the table
 
+    /** Extra drawing over the pieces, inside the camera (a game's own effects, like a snake eating a piece). */
+    var overlay: (androidx.compose.ui.graphics.drawscope.DrawScope.(lux.board.View) -> Unit)? = null
+
     val pieces = ArrayList<PieceSprite>()
     val die = DieSprite()
     val particles = ArrayList<Particle>(512)
@@ -212,6 +215,8 @@ class PieceSprite(val seat: Int, val id: Int, val color: Int, start: G) {
     var dissolve = 0f
     var shake = G(0f, 0f)
     var selectable = false
+    /** A white-and-colour ring under the piece (0..1), so it stands out on a busy board (Snake & Ladders). */
+    var halo = 0f
     var trail = false
     /** Sword cut: when set, the piece is drawn as two halves. */
     var cut: Cut? = null

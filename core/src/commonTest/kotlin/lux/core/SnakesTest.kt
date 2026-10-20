@@ -81,16 +81,23 @@ class SnakesTest {
         // Thousands of random 4-player games: long enough to be a game, short enough for a quick round with family.
         val rng = Random(42)
         var total = 0L
+        var bites = 0L; var climbs = 0L
         val games = 2000
         repeat(games) {
             val s = SnakesState(intArrayOf(0, 1, 2, 3))
             val dice = SnakesDice(rng)
             var guard = 0
-            while (!s.isOver && guard++ < 5000) SnakesEngine.roll(s, dice.next())
+            while (!s.isOver && guard++ < 5000) for (e in SnakesEngine.roll(s, dice.next())) {
+                if (e.type == SnakesEventType.Snake) bites++
+                if (e.type == SnakesEventType.Ladder) climbs++
+            }
             assertTrue(s.isOver)
             total += s.rolls
         }
         val perPlayer = total / games / 4.0
         assertTrue(perPlayer in 20.0..60.0, "rolls per player to finish: $perPlayer")
+        // Fair, not cruel: fewer snake bites than ladder climbs, and only a few of each per player.
+        val bitesEach = bites / games / 4.0; val climbsEach = climbs / games / 4.0
+        assertTrue(bitesEach < climbsEach && bitesEach < 3.5, "bites $bitesEach vs ladders $climbsEach per player")
     }
 }

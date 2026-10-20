@@ -115,6 +115,7 @@ fun DrawScope.drawScene(stage: Stage, view: View, board: ImageBitmap, fonts: Sce
             drawPiece(p, view, st, stage.time, kind)
         }
         if (!dieDrawn) drawDie(die, view, st, stage.time)
+        stage.overlay?.invoke(this, view)
 
         for (pt in stage.particles) drawParticle(pt, view, st, kind)
         for (d in stage.decals) if (d.started && d.kind !in groundKinds) drawDecal(d, view, st, stage.time)
@@ -193,6 +194,13 @@ fun DrawScope.drawPiece(p: PieceSprite, view: View, st: BoardStyle, time: Float,
     val c = p.color
     val alpha = p.alpha * (1f - p.dissolve)
     if (alpha <= 0.01f) return
+    if (p.halo > 0.01f) {
+        val r = u * 0.4f
+        val a = p.halo * alpha
+        drawCircle(st.pieceSeat[c].copy(alpha = 0.45f * a), r, base)
+        drawCircle(Color.White.copy(alpha = a), r, base, style = Stroke(u * 0.075f))
+        drawCircle(lerp(st.pieceDeep[c], Color.Black, 0.3f).copy(alpha = a), r + u * 0.05f, base, style = Stroke(u * 0.03f))
+    }
     val cut = p.cut
     if (cut == null) {
         pawn(foot, u, st.pieceSeat[c], st.pieceDeep[c], st.pieceLight[c], st.collar, alpha, p.flash, p.squash, p.spin, p.flip, p.lean, p.joy, time, kind)

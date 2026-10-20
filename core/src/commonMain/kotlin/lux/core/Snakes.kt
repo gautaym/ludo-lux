@@ -11,11 +11,15 @@ import kotlin.random.Random
 object SnakesBoard {
     const val LAST = 100
 
-    /** Foot -> top. An original layout: eight ladders spread over the board, the longest in the middle rows. */
-    val ladders: Map<Int, Int> = mapOf(3 to 22, 8 to 30, 20 to 41, 28 to 55, 36 to 57, 51 to 72, 63 to 81, 71 to 92)
+    /** Foot -> top. An original layout: nine ladders spread over the board, the longest in the middle rows. */
+    val ladders: Map<Int, Int> = mapOf(3 to 22, 8 to 30, 20 to 41, 28 to 55, 36 to 57, 51 to 72, 63 to 81, 71 to 92, 80 to 99)
 
-    /** Head -> tail. Eight snakes; the long ones wait near the top, so a game is never over until it's over. */
-    val snakes: Map<Int, Int> = mapOf(16 to 6, 47 to 26, 49 to 11, 62 to 19, 64 to 43, 87 to 24, 95 to 56, 98 to 78)
+    /**
+     * Head -> tail. Six snakes, one long one near the top so a game is never over until it's over.
+     * (The first board had eight, with pairs side by side and three in the nineties: about 6.5 bites per player per game,
+     * more than the ladders. This one gives about 2.3 bites and 3 ladders, see SnakesTest.)
+     */
+    val snakes: Map<Int, Int> = mapOf(16 to 6, 47 to 26, 62 to 19, 87 to 24, 93 to 73, 98 to 78)
 
     /** Where landing on [cell] really takes you (a ladder's top, a snake's tail), or null for a plain square. */
     fun jump(cell: Int): Int? = ladders[cell] ?: snakes[cell]

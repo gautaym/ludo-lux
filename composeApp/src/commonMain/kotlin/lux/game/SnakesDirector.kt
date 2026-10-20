@@ -7,7 +7,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import lux.app.Haptic
 import lux.audio.SfxId
+import lux.board.SnakeBite
 import lux.board.SnakesGeo
+import lux.board.drawSnakeBite
 import lux.core.SnakesBoard
 import lux.core.SnakesDice
 import lux.core.SnakesEngine
@@ -46,6 +48,12 @@ class SnakesDirector(val stage: Stage) {
         private set
     private var toastId = 0L
     private var rollRequested = false
+    /** The snake eating someone right now, if any. */
+    private var bite: SnakeBite? = null
+
+    /** Pieces stand this big on their own square (a piece is about 0.85 of a square wide), smaller when sharing. */
+    private val solo = 1.65f
+    private val shared = 1.2f
 
     /** Saved after every roll (so a series game can be continued later). */
     var onProgress: ((SnakesState) -> Unit)? = null
@@ -59,6 +67,8 @@ class SnakesDirector(val stage: Stage) {
     fun start(configs: List<SeatConfig>, rules: SnakesRules, startSeat: Int = 0, resume: SnakesState? = null) {
         stage.clear()
         stage.viewTurns = 0
+        bite = null
+        stage.overlay = { v -> bite?.let { drawSnakeBite(it, v) } }
         val sorted = configs.sortedBy { it.color }
         seats = sorted
         over = false; showResults = false; hint = ""; toast = null
@@ -92,7 +102,8 @@ class SnakesDirector(val stage: Stage) {
                 val g = groups[cell]!!
                 SnakesGeo.spot(cell, g.indexOf(seat), g.size)
             }
-            pc.restScale = if (cell == 0) 0.85f else 1.2f
+            pc.restScale = if (cell == 0) 1.05f else if (groups[cell]!!.size > 1) shared else solo
+            pc.halo = if (cell == 0) 0f else 1f
             if (snap) { pc.pos = pc.restPos; pc.scale = pc.restScale }
         }
     }
@@ -179,7 +190,7 @@ class SnakesDirector(val stage: Stage) {
             app.sfx(SfxId.Hop, 0.5f, 0.95f + i * 0.03f)
             stage.hop(pc, dest, if (last) 0.24f else 0.17f, if (last) 1.2f else 0.85f, {
                 if (last) { stage.landingDust(dest, col); app.sfx(SfxId.Land, 0.7f); app.haptic(Haptic.Light) }
-            }, anticipate = i == 0, scale = 1.2f)
+            }, anticipate = i == 0, scale = solo)
         }
         pc.busy = false
     }
@@ -206,36 +217,58 @@ class SnakesDirector(val stage: Stage) {
         stage.wait(0.25f)
     }
 
-    /** Down a snake: a hiss and a shiver at the head, then a wobbling slide down its body to the tail. */
+    /**
+     * Down a snake: the head rears up and opens its mouth, the piece shrinks into it, a bulge in the piece's colour
+     * runs down the body, and the piece pops out of the tail.
+     */
     private suspend fun slide(pc: PieceSprite, head: Int, tail: Int, col: Color) {
-        val path = SnakesGeo.spine(head, tail)
-        say("Snake! Down to $tail", Color(0xFFFCA5A5), 1.1f)
+        val b = SnakeBite(head, tail, col)
+        val path = b.spine
+        bite = b
+        say("Snake! Down to $tail", Color(0xFFFCA5A5), 1.3f)
         app.sfx(SfxId.Penalty, 0.7f)
-        stage.flash(path[0], 1.4f, 0.3f, Color(0xFFEF4444), 0.7f)
-        stage.shudder(pc, 0.3f, 0.12f)
-        stage.wait(0.32f)
-        app.sfx(SfxId.Whoosh, 0.7f)
         pc.busy = true
-        pc.trail = true
-        val dur = 0.7f + path.size * 0.008f + (head - tail) * 0.004f
+        val start = pc.pos
+        val mouth = path[0]
+        // Rear up and open wide; the piece trembles.
+        stage.shudder(pc, 0.35f, 0.1f)
+        stage.tween(0.4f) { k -> val e = smooth(k); b.rear = e; b.open = e }
+        // Snap: the piece is pulled into the mouth and the jaws shut on it.
+        app.sfx(SfxId.Whoosh, 0.7f)
+        val scale0 = pc.scale
+        stage.tween(0.22f) { k ->
+            val e = k * k
+            pc.pos = lerp(start, mouth, e)
+            pc.scale = scale0 * (1f - 0.8f * e)
+            pc.alpha = 1f - e
+            pc.halo = 1f - e
+        }
+        pc.visible = false
+        stage.tween(0.12f) { k -> b.open = 1f - k }
+        app.haptic(Haptic.Heavy)
+        stage.shake(0.06f, 0.15f)
+        // The gulp travels down the body; the head settles back.
+        val dur = 0.9f + path.size * 0.008f + (head - tail) * 0.006f
         stage.tween(dur) { k ->
-            val e = k * k * (3f - 2f * k)
+            val e = smooth(k)
+            b.gulp = e
+            b.rear = (1f - k * 3f).coerceAtLeast(0f)
             val f = e * (path.size - 1)
             val i = f.toInt().coerceAtMost(path.size - 2)
             pc.pos = lerp(path[i], path[i + 1], f - i)
-            pc.z = 0.15f
-            pc.spin = sin(k * 26f) * 14f
         }
-        pc.trail = false; pc.spin = 0f
+        bite = null
+        // Out of the tail.
         val end = path.last()
         pc.pos = end; pc.z = 0f; pc.restPos = end
-        pc.impulse(-7f)
+        pc.visible = true; pc.alpha = 1f; pc.halo = 1f
+        pc.scale = solo * 0.4f
+        pc.impulse(-9f)
         stage.landingDust(end, col)
-        stage.shake(0.12f, 0.25f)
+        stage.ring(end, 0.2f, 1.4f, 0.35f, col, 0.8f)
         app.sfx(SfxId.Land, 0.8f)
-        app.haptic(Haptic.Heavy)
         pc.busy = false
-        stage.wait(0.3f)
+        stage.wait(0.35f)
     }
 
     /** Throws the die in the tray: it leaps, tumbles in 3D and settles showing [value] (as in Ludo). */

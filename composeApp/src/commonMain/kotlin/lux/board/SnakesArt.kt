@@ -96,11 +96,17 @@ object SnakesGeo {
     }
 }
 
+/** Snake colours: none of them red, green, yellow or blue, so a snake is never mistaken for a piece. */
 private val snakeColors = listOf(
-    Color(0xFF2E9E4F) to Color(0xFF145A2A), Color(0xFFD9483B) to Color(0xFF7A1E17), Color(0xFF8E54C9) to Color(0xFF45206B),
-    Color(0xFFE48B1F) to Color(0xFF8A4A06), Color(0xFF1E9AA8) to Color(0xFF0B4D55), Color(0xFFC9437F) to Color(0xFF6A1640),
-    Color(0xFF6B8E23) to Color(0xFF34470D), Color(0xFF3D6FD1) to Color(0xFF173777),
+    Color(0xFF8E54C9) to Color(0xFF45206B), Color(0xFF1E9AA8) to Color(0xFF0B4D55), Color(0xFFC9437F) to Color(0xFF6A1640),
+    Color(0xFF9A6234) to Color(0xFF4E2C10), Color(0xFF6B8E23) to Color(0xFF34470D), Color(0xFF5E6B7D) to Color(0xFF2B3340),
 )
+
+/** Body and outline colours of the snake whose head is on [head]. */
+fun snakeColor(head: Int): Pair<Color, Color> = snakeColors[SnakesBoard.snakes.keys.indexOf(head).coerceAtLeast(0) % snakeColors.size]
+
+/** How wide a snake's body is (pixels, for squares of [sq] pixels) at point [k] of [n] along its spine. */
+fun snakeWidth(sq: Float, k: Int, n: Int) = sq * (0.26f * (1f - k / n.toFloat()) + 0.05f)
 
 /** Paints the Snake & Ladders board for [st] into a [px] square bitmap (numbers need [measurer]). */
 fun paintSnakesBoard(st: BoardStyle, px: Int, measurer: TextMeasurer, font: FontFamily): ImageBitmap {
@@ -130,7 +136,8 @@ private fun DrawScope.drawSnakesArt(st: BoardStyle, measurer: TextMeasurer, font
     for (cell in 1..SnakesBoard.LAST) {
         val (col, row) = SnakesBoard.colRow(cell)
         val x = m + col * sq; val y = m + (9 - row) * sq
-        val tint = pale(st.seat[(col + row) % 4], if ((col + row) % 2 == 0) 0.62f else 0.78f)
+        // Very pale, so the pieces (in the full seat colours) stand out on any square.
+        val tint = pale(st.seat[(col + row) % 4], if ((col + row) % 2 == 0) 0.84f else 0.92f)
         drawRect(Brush.verticalGradient(listOf(lerp(tint, Color.White, 0.25f), tint), y, y + sq), Offset(x, y), Size(sq, sq))
         drawRect(lerp(tint, Color.Black, 0.18f), Offset(x, y), Size(sq, sq), style = Stroke(max(1f, sq * 0.02f)))
     }
@@ -181,13 +188,12 @@ private fun DrawScope.drawSnakesArt(st: BoardStyle, measurer: TextMeasurer, font
     }
 
     // Snakes.
-    for ((i, entry) in SnakesBoard.snakes.entries.withIndex()) {
-        val (head, tail) = entry
+    for ((head, tail) in SnakesBoard.snakes) {
         val pts = SnakesGeo.spine(head, tail).map { p(it) }
-        val (body, deep) = snakeColors[i % snakeColors.size]
+        val (body, deep) = snakeColor(head)
         val n = pts.size
         // Width tapers from the neck to the tail tip.
-        fun width(k: Int) = sq * (0.26f * (1f - k / n.toFloat()) + 0.05f)
+        fun width(k: Int) = snakeWidth(sq, k, n)
         // Shadow.
         for (k in 0 until n - 1) drawLine(Color.Black.copy(alpha = 0.2f), pts[k] + Offset(sq * 0.05f, sq * 0.08f), pts[k + 1] + Offset(sq * 0.05f, sq * 0.08f), width(k) * 1.1f, StrokeCap.Round)
         // Outline, body, belly highlight.
@@ -206,36 +212,125 @@ private fun DrawScope.drawSnakesArt(st: BoardStyle, measurer: TextMeasurer, font
             drawPath(dia, lerp(deep, Color.Black, 0.1f))
             drawPath(dia, Color(0xFFFFE9A8).copy(alpha = 0.55f), style = Stroke(max(1f, sq * 0.015f)))
         }
-        // Head: an oval pointing back along the neck, with eyes and a little forked tongue.
-        val h = pts[0]; val neck = pts[3]
-        val ang = atan2(h.y - neck.y, h.x - neck.x)
-        val hw = sq * 0.27f; val hl = sq * 0.36f
-        val fx = cos(ang); val fy = sin(ang)
-        val headPath = Path().apply {
-            val steps = 24
-            for (s in 0..steps) {
-                val t = s / steps.toFloat() * 2f * PI.toFloat()
-                val lx = cos(t) * hl * (if (cos(t) > 0) 1f else 0.8f); val ly = sin(t) * hw
-                val x = h.x + lx * fx - ly * fy; val y = h.y + lx * fy + ly * fx
-                if (s == 0) moveTo(x, y) else lineTo(x, y)
+        snakeHead(pts[0], pts[3], sq, body, deep)
+    }
+}
+
+/**
+ * A snake's head at [h] (pointing away from [neck]): an oval with eyes and a forked tongue. [open] (0..1) parts the
+ * jaws to show the mouth and fangs; [scale] makes it bigger (rearing up).
+ */
+fun DrawScope.snakeHead(h: Offset, neck: Offset, sq: Float, body: Color, deep: Color, open: Float = 0f, scale: Float = 1f) {
+    val ang = atan2(h.y - neck.y, h.x - neck.x)
+    val fx = cos(ang); val fy = sin(ang)
+    val hw = sq * 0.27f * scale; val hl = sq * 0.36f * scale
+    // Jaws hinge at the back of the head.
+    val hinge = Offset(h.x - fx * hl * 0.55f, h.y - fy * hl * 0.55f)
+    /** The head outline turned by [turn]; [half] 0 = whole oval, 1 = upper half, -1 = lower half. */
+    fun outline(turn: Float, half: Int): Path = Path().apply {
+        val a = ang + turn
+        val ax = cos(a); val ay = sin(a)
+        val steps = 24
+        val from = if (half == 1) PI.toFloat() else 0f
+        val to = if (half == 0) 2f * PI.toFloat() else from + PI.toFloat()
+        for (s in 0..steps) {
+            val t = from + (to - from) * s / steps
+            val lx = cos(t) * hl * (if (cos(t) > 0) 1f else 0.8f) + hl * 0.55f; val ly = sin(t) * hw
+            val x = hinge.x + lx * ax - ly * ay; val y = hinge.y + lx * ay + ly * ax
+            if (s == 0) moveTo(x, y) else lineTo(x, y)
+        }
+        close()
+    }
+    val edge = lerp(deep, Color.Black, 0.3f)
+    val fill = Brush.radialGradient(listOf(lerp(body, Color.White, 0.25f), body, deep), h, hl)
+    val gape = open * 0.8f
+    if (gape < 0.02f) {
+        val tip = Offset(h.x + fx * hl, h.y + fy * hl)
+        val fork = Offset(tip.x + fx * sq * 0.16f, tip.y + fy * sq * 0.16f)
+        drawLine(Color(0xFFD62828), tip, fork, sq * 0.03f, StrokeCap.Round)
+        for (sgn in listOf(-1f, 1f)) {
+            drawLine(Color(0xFFD62828), fork, Offset(fork.x + (fx * 0.07f - fy * 0.05f * sgn) * sq, fork.y + (fy * 0.07f + fx * 0.05f * sgn) * sq), sq * 0.025f, StrokeCap.Round)
+        }
+        val whole = outline(0f, 0)
+        drawPath(whole, edge, style = Stroke(sq * 0.05f, join = StrokeJoin.Round))
+        drawPath(whole, fill)
+    } else {
+        // Open mouth: a dark throat between the jaws, with white fangs on the upper jaw.
+        val reach = hl * 1.75f
+        val throat = Path().apply {
+            moveTo(hinge.x, hinge.y)
+            for (s in 0..12) {
+                val a = ang - gape + 2f * gape * s / 12f
+                lineTo(hinge.x + cos(a) * reach, hinge.y + sin(a) * reach)
             }
             close()
         }
-        val tip = Offset(h.x + fx * hl, h.y + fy * hl)
-        drawLine(Color(0xFFD62828), tip, Offset(tip.x + fx * sq * 0.16f, tip.y + fy * sq * 0.16f), sq * 0.03f, StrokeCap.Round)
-        for (sgn in listOf(-1f, 1f)) {
-            val base = Offset(tip.x + fx * sq * 0.16f, tip.y + fy * sq * 0.16f)
-            drawLine(Color(0xFFD62828), base, Offset(base.x + (fx * 0.07f - fy * 0.05f * sgn) * sq, base.y + (fy * 0.07f + fx * 0.05f * sgn) * sq), sq * 0.025f, StrokeCap.Round)
+        drawPath(throat, Color(0xFF5B0B12))
+        drawCircle(Color(0xFFE5737E), hw * 0.4f, Offset(hinge.x + fx * reach * 0.42f, hinge.y + fy * reach * 0.42f))
+        for (sgn in listOf(1f, -1f)) {
+            // Lower jaw (turned +gape, its lower half) first, then the upper jaw over it.
+            val jaw = outline(gape * sgn, if (sgn > 0) -1 else 1)
+            drawPath(jaw, edge, style = Stroke(sq * 0.05f, join = StrokeJoin.Round))
+            drawPath(jaw, fill)
         }
-        drawPath(headPath, lerp(deep, Color.Black, 0.3f), style = Stroke(sq * 0.05f, join = StrokeJoin.Round))
-        drawPath(headPath, Brush.radialGradient(listOf(lerp(body, Color.White, 0.25f), body, deep), h, hl))
-        for (sgn in listOf(-1f, 1f)) {
-            val e = Offset(h.x + fx * hl * 0.35f - fy * hw * 0.5f * sgn, h.y + fy * hl * 0.35f + fx * hw * 0.5f * sgn)
-            drawCircle(Color.White, sq * 0.075f, e)
-            drawCircle(Color(0xFF111111), sq * 0.04f, Offset(e.x + fx * sq * 0.015f, e.y + fy * sq * 0.015f))
-            drawCircle(Color.White, sq * 0.014f, Offset(e.x - sq * 0.012f, e.y - sq * 0.014f))
+        val ua = ang - gape
+        val inward = Offset(-sin(ua), cos(ua))
+        for (q in listOf(0.7f, 0.92f)) {
+            val root = Offset(hinge.x + cos(ua) * reach * q, hinge.y + sin(ua) * reach * q)
+            val fang = Path().apply {
+                moveTo(root.x - cos(ua) * sq * 0.04f, root.y - sin(ua) * sq * 0.04f)
+                lineTo(root.x + cos(ua) * sq * 0.04f, root.y + sin(ua) * sq * 0.04f)
+                lineTo(root.x + inward.x * sq * 0.12f * scale, root.y + inward.y * sq * 0.12f * scale); close()
+            }
+            drawPath(fang, Color.White)
         }
     }
+    // Eyes (both on a closed head; the upper jaw's one when open).
+    val ea = ang - gape
+    val ex = cos(ea); val ey = sin(ea)
+    val c = Offset(hinge.x + ex * hl * 0.9f, hinge.y + ey * hl * 0.9f)
+    for (sgn in if (gape < 0.02f) listOf(-1f, 1f) else listOf(-1f)) {
+        val e = Offset(c.x - ey * hw * 0.5f * sgn, c.y + ex * hw * 0.5f * sgn)
+        drawCircle(Color.White, sq * 0.075f * scale, e)
+        drawCircle(Color(0xFF111111), sq * 0.04f * scale, Offset(e.x + ex * sq * 0.015f, e.y + ey * sq * 0.015f))
+        drawCircle(Color.White, sq * 0.014f * scale, Offset(e.x - sq * 0.012f, e.y - sq * 0.014f))
+    }
+}
+
+/**
+ * A snake eating a piece, drawn over the painted board: the head rears up with its mouth open ([open], [rear]),
+ * then a bulge in the piece's colour runs down the body ([gulp] 0..1, head to tail).
+ */
+class SnakeBite(val head: Int, val tail: Int, val pieceColor: Color) {
+    var open = 0f
+    var rear = 0f
+    /** Where the swallowed piece is along the body, 0..1 (negative: not swallowed yet). */
+    var gulp = -1f
+    val spine = SnakesGeo.spine(head, tail)
+}
+
+fun DrawScope.drawSnakeBite(b: SnakeBite, view: View) {
+    val (body, deep) = snakeColor(b.head)
+    val sq = SnakesGeo.SQ * view.cell
+    val pts = b.spine.map { view.ground(it) }
+    val n = pts.size
+    if (b.gulp >= 0f) {
+        // The bulge: a fat bit of body with the piece's colour showing through, sliding to the tail.
+        val f = (b.gulp * (n - 1)).coerceIn(0f, (n - 1).toFloat())
+        val i = f.toInt().coerceAtMost(n - 2)
+        val at = lerp(pts[i], pts[i + 1], f - i)
+        val r = snakeWidth(sq, i, n) * 0.5f + sq * 0.15f
+        drawCircle(Color.Black.copy(alpha = 0.22f), r * 1.05f, at + Offset(sq * 0.05f, sq * 0.08f))
+        drawCircle(lerp(deep, Color.Black, 0.3f), r * 1.1f, at)
+        drawCircle(Brush.radialGradient(listOf(lerp(b.pieceColor, Color.White, 0.15f), b.pieceColor, lerp(b.pieceColor, body, 0.5f)), at, r), r, at)
+        drawCircle(Color.White.copy(alpha = 0.45f), r * 0.28f, at + Offset(-r * 0.32f, -r * 0.36f))
+    }
+    // The head, redrawn bigger over the painted one while it eats.
+    val h = pts[0]; val neck = pts[3]
+    val d = h - neck
+    val len = d.getDistance().coerceAtLeast(1f)
+    val lift = Offset(d.x / len, d.y / len) * (sq * 0.12f * b.rear)
+    snakeHead(h + lift, neck, sq, body, deep, b.open, 1f + 0.45f * b.rear)
 }
 
 private fun lerp(a: Offset, b: Offset, t: Float) = Offset(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
