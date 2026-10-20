@@ -82,6 +82,10 @@ class Settings(private val prefs: Prefs) {
     private val _name = mutableStateOf(prefs.getString("name", "You"))
     private val _pieceStyle = mutableStateOf(prefs.getInt("pieces", 0).coerceIn(0, 1))
     private val _seriesLength = mutableStateOf(prefs.getInt("seriesLength", 3).let { if (it in listOf(1, 3, 5)) it else 3 })
+    private val _game = mutableStateOf(prefs.getString("game", GAME_LUDO))
+    private val _snakesExact = bool("snakesExact", true)
+    private val _snakesSixAgain = bool("snakesSixAgain", true)
+    private val _snakesNeedSix = bool("snakesNeedSix", false)
 
     var sound: Boolean
         get() = _sound.value
@@ -129,6 +133,25 @@ class Settings(private val prefs: Prefs) {
     var name: String
         get() = _name.value
         set(v) { _name.value = v; prefs.putString("name", v) }
+    /** Which game PLAY starts: [GAME_LUDO] or [GAME_SNAKES]. */
+    var game: String
+        get() = _game.value
+        set(v) { _game.value = v; prefs.putString("game", v) }
+    /** Snake & Ladders house rules. */
+    var snakesExact: Boolean
+        get() = _snakesExact.value
+        set(v) { _snakesExact.value = v; prefs.putInt("snakesExact", if (v) 1 else 0) }
+    var snakesSixAgain: Boolean
+        get() = _snakesSixAgain.value
+        set(v) { _snakesSixAgain.value = v; prefs.putInt("snakesSixAgain", if (v) 1 else 0) }
+    var snakesNeedSix: Boolean
+        get() = _snakesNeedSix.value
+        set(v) { _snakesNeedSix.value = v; prefs.putInt("snakesNeedSix", if (v) 1 else 0) }
+
+    companion object {
+        const val GAME_LUDO = "ludo"
+        const val GAME_SNAKES = "snakes"
+    }
 }
 
 /**
@@ -136,13 +159,13 @@ class Settings(private val prefs: Prefs) {
  * saved after every move.
  */
 @OptIn(ExperimentalEncodingApi::class)
-class SeriesStore(private val prefs: Prefs) {
-    var current by mutableStateOf(Series.decode(prefs.getString("series", "")))
+class SeriesStore(private val prefs: Prefs, private val prefix: String = "") {
+    var current by mutableStateOf(Series.decode(prefs.getString(prefix + "series", "")))
         private set
 
     fun save(s: Series?) {
         current = s
-        prefs.putString("series", s?.encode() ?: "")
+        prefs.putString(prefix + "series", s?.encode() ?: "")
         if (s == null) clearGame()
     }
 
@@ -155,13 +178,15 @@ class SeriesStore(private val prefs: Prefs) {
     }
 
     fun saveGame(gameIndex: Int, state: GameState) = prefs.putString("seriesGame", "$gameIndex:" + Base64.encode(state.serialize()))
-    fun clearGame() = prefs.putString("seriesGame", "")
+    fun clearGame() { prefs.putString("seriesGame", ""); if (prefix.isNotEmpty()) prefs.putString(prefix + "game", "") }
 }
 
 /** The app's services, created once by the entry point. */
 class AppContext(val platform: Platform) {
     val settings = Settings(platform.prefs)
     val series = SeriesStore(platform.prefs)
+    /** The Snake & Ladders series (kept apart from Ludo's, so each can be continued). */
+    val snakesSeries = SeriesStore(platform.prefs, "snakes.")
     val net = lux.net.LuxClient(platform.prefs)
     val shop = ShopState(platform.prefs, net)
     val ads = AdsState(platform.prefs, net)
@@ -191,6 +216,8 @@ class Nav {
 sealed interface Screen {
     data object Menu : Screen
     data object Match : Screen
+    /** A Snake & Ladders series. */
+    data object Snakes : Screen
     data object Showcase : Screen
     /** Online: my family groups. */
     data object Family : Screen

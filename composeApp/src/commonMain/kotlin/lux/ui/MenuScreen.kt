@@ -88,12 +88,13 @@ fun MenuScreen(onPlay: () -> Unit, onContinue: () -> Unit, onEffects: () -> Unit
                 Logo(st, t)
                 Spacer(Modifier.height(14.dp))
                 Column(Modifier.widthIn(max = 560.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    GamePicker(st, t)
                     Panel(Modifier.fillMaxWidth()) {
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             Section("Players") { Segmented(listOf(2, 3, 4), s.players, { "$it" }, { s.players = it }) }
                             Section("Games in a series") { Segmented(listOf(1, 3, 5), s.seriesLength, { if (it == 1) "1 game" else "$it games" }, { s.seriesLength = it }) }
                             Section("Play with") { Segmented(listOf(true, false), s.vsComputer, { if (it) "Computer" else "Friends" }, { s.vsComputer = it }) }
-                            AnimatedVisibility(s.vsComputer, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                            AnimatedVisibility(s.vsComputer && s.game != lux.app.Settings.GAME_SNAKES, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                                 Section("Computer level") { Segmented(listOf(0, 1, 2), s.cpuLevel, { listOf("Easy", "Medium", "Hard")[it] }, { s.cpuLevel = it }) }
                             }
                         }
@@ -104,7 +105,16 @@ fun MenuScreen(onPlay: () -> Unit, onContinue: () -> Unit, onEffects: () -> Unit
                             Section("Pieces") { PiecePicker(st, t) }
                         }
                     }
-                    Panel(Modifier.fillMaxWidth()) {
+                    if (s.game == lux.app.Settings.GAME_SNAKES) Panel(Modifier.fillMaxWidth()) {
+                        Section("Snake & Ladders rules") {
+                            Column {
+                                ToggleRow("Exact roll for 100", "Off: a bigger roll bounces back", s.snakesExact) { s.snakesExact = it }
+                                ToggleRow("Six rolls again", "Three sixes in a row and the turn passes", s.snakesSixAgain) { s.snakesSixAgain = it }
+                                ToggleRow("Six (or one) to start", "Off: everyone starts straight away", s.snakesNeedSix) { s.snakesNeedSix = it }
+                            }
+                        }
+                    }
+                    if (s.game != lux.app.Settings.GAME_SNAKES) Panel(Modifier.fillMaxWidth()) {
                         Section("Capture effect") {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 val names = CaptureStyle.entries.map { it.title } + "Surprise"
@@ -136,7 +146,7 @@ fun MenuScreen(onPlay: () -> Unit, onContinue: () -> Unit, onEffects: () -> Unit
                 }
             }
             // A series left half-way is one tap away.
-            val saved = app.series.current?.takeIf { !it.isOver }
+            val saved = (if (s.game == lux.app.Settings.GAME_SNAKES) app.snakesSeries else app.series).current?.takeIf { !it.isOver }
             if (saved != null) {
                 val click = tap(onContinue)
                 Row(
@@ -146,7 +156,7 @@ fun MenuScreen(onPlay: () -> Unit, onContinue: () -> Unit, onEffects: () -> Unit
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Label("Continue series", 22.sp, Color.White, display = true)
+                        Label(if (s.game == lux.app.Settings.GAME_SNAKES) "Continue Snake & Ladders" else "Continue series", 22.sp, Color.White, display = true)
                         val leader = saved.seats[saved.standings()[0]]
                         Label(
                             if (saved.gameIndex == 0) "Game 1 of ${saved.games}" else "Game ${saved.gameIndex + 1} of ${saved.games}  ·  ${leader.name} leads with ${saved.total(saved.standings()[0])}",
@@ -196,6 +206,51 @@ private fun Logo(st: lux.theme.BoardStyle, t: Float) {
         Canvas(Modifier.size(70.dp, 84.dp)) {
             val bob = sin(t * 2.4f) * size.height * 0.04f
             pawn(Offset(center.x, size.height * 0.92f + bob), size.height * 0.85f, st.pieceSeat[0], st.pieceDeep[0], st.pieceLight[0], st.collar, 1f)
+        }
+    }
+}
+
+/** Which game PLAY starts: two big cards, each with a little live drawing. */
+@Composable
+private fun GamePicker(st: lux.theme.BoardStyle, t: Float) {
+    val app = LocalApp.current
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        for ((id, title) in listOf(lux.app.Settings.GAME_LUDO to "Ludo", lux.app.Settings.GAME_SNAKES to "Snake & Ladders")) {
+            val on = app.settings.game == id
+            val k by animateFloatAsState(if (on) 1f else 0f)
+            val click = tap { app.settings.game = id }
+            Column(
+                Modifier.weight(1f).clip(RoundedCornerShape(20.dp))
+                    .background(Brush.verticalGradient(listOf(lerp(Color(0x55000000), Color(0xFF7C4A03), k), lerp(Color(0x55000000), Color(0xFF3A2200), k))))
+                    .border((1 + 2 * k).dp, lerp(Palette.panelEdge, Palette.gold, k), RoundedCornerShape(20.dp))
+                    .clickable(onClick = click).padding(10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Canvas(Modifier.fillMaxWidth().height(58.dp)) {
+                    val c = Offset(size.width / 2, size.height / 2)
+                    if (id == lux.app.Settings.GAME_LUDO) {
+                        drawCube(Offset(c.x - size.height * 0.55f, c.y), size.height * 0.26f, 25f + (if (on) t * 37f else 0f), 35f, 0f, st.diceBody, st.dicePip)
+                        for (i in 0 until 2) pawn(Offset(c.x + size.height * (0.25f + i * 0.5f), size.height * 0.95f), size.height * 0.7f, st.pieceSeat[i * 2], st.pieceDeep[i * 2], st.pieceLight[i * 2], st.collar, 1f)
+                    } else {
+                        // A tiny ladder and a wavy snake.
+                        val lx = c.x - size.height * 0.6f
+                        for (sx in listOf(-1f, 1f)) drawLine(Color(0xFFC98B4A), Offset(lx + sx * size.height * 0.14f, size.height * 0.08f), Offset(lx + sx * size.height * 0.14f, size.height * 0.92f), size.height * 0.07f, androidx.compose.ui.graphics.StrokeCap.Round)
+                        for (r in 1..4) drawLine(Color(0xFFE8B57A), Offset(lx - size.height * 0.14f, size.height * r * 0.19f), Offset(lx + size.height * 0.14f, size.height * r * 0.19f), size.height * 0.05f)
+                        val path = androidx.compose.ui.graphics.Path()
+                        for (i in 0..30) {
+                            val q = i / 30f
+                            val x = c.x + size.height * (0.0f + q * 0.9f)
+                            val y = size.height * (0.2f + q * 0.62f) + kotlin.math.sin(q * 9f + (if (on) t * 3f else 0f)) * size.height * 0.1f
+                            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                        }
+                        drawPath(path, Color(0xFF145A2A), style = androidx.compose.ui.graphics.drawscope.Stroke(size.height * 0.16f, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                        drawPath(path, Color(0xFF2E9E4F), style = androidx.compose.ui.graphics.drawscope.Stroke(size.height * 0.11f, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                        drawCircle(Color(0xFF2E9E4F), size.height * 0.11f, Offset(c.x, size.height * 0.2f + kotlin.math.sin(if (on) t * 3f else 0f) * size.height * 0.1f))
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Label(title, 20.sp, if (on) Palette.gold else Palette.text, display = true, align = TextAlign.Center)
+            }
         }
     }
 }

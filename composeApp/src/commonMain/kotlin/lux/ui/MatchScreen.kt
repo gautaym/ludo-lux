@@ -177,7 +177,7 @@ fun MatchScreen(
         // Top bar: pause on the left, short announcements in the middle (never over the board).
         Row(Modifier.fillMaxWidth().height(with(density) { topBar.toDp() }).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             RoundIcon(if (director.showcase) onQuit else onPause, size = 50.dp) { if (director.showcase) closeIcon(it) else pauseIcon(it) }
-            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { ToastView(director) }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { ToastView(director.toast) }
             Box(Modifier.width(96.dp), contentAlignment = Alignment.CenterEnd) {
                 if (seriesLabel != null) {
                     Box(Modifier.clip(RoundedCornerShape(50)).background(Color(0xCC0B2129)).border(1.5.dp, Palette.gold.copy(alpha = 0.7f), RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 4.dp)) {
@@ -208,8 +208,8 @@ private fun timerHint(stage: Stage, director: MatchDirector, color: Int, local: 
 }
 
 @Composable
-private fun ToastView(director: MatchDirector) {
-    val t = director.toast ?: return
+internal fun ToastView(toast: lux.game.Toast?) {
+    val t = toast ?: return
     val pop = remember(t.id) { Animatable(0f) }
     var visible by remember(t.id) { mutableStateOf(true) }
     LaunchedEffect(t.id) {
@@ -231,10 +231,12 @@ private fun ToastView(director: MatchDirector) {
 }
 
 @Composable
-private fun PlayerPlate(
+internal fun PlayerPlate(
     name: String, cpu: Boolean, local: Boolean, badge: String, color: Color, deep: Color, light: Color, collar: Color,
     pieceColor: Color, pieceDeep: Color, pieceLight: Color, active: Boolean, hint: String,
     rank: Int, seatCount: Int, alignRight: Boolean, seriesPoints: Int, softLast: Boolean, onTap: () -> Unit,
+    /** Shown under the name while waiting (instead of "Computer" / "Player"), e.g. "Square 41". */
+    sub: String? = null,
 ) {
     val app = LocalApp.current
     val glow by animateFloatAsState(if (active) 1f else 0f, tween(250))
@@ -268,11 +270,12 @@ private fun PlayerPlate(
                     }
                 }
             }
+            val custom = sub
             val sub = when {
                 rank > 0 -> if (rank == seatCount) (if (softLast) "Next round!" else "Last place") else listOf("", "Winner!", "2nd place", "3rd place")[rank.coerceAtMost(3)]
                 hint.isNotEmpty() -> hint
                 active -> if (cpu) "Thinking..." else if (local) "Your turn" else "Playing..."
-                else -> badge.ifEmpty { if (cpu) "Computer" else "Player" }
+                else -> custom ?: badge.ifEmpty { if (cpu) "Computer" else "Player" }
             }
             if (badge.isNotEmpty() && sub == badge) RankLabel(badge, 15.sp)
             else Label(sub, 15.sp, if (active) Palette.gold else Palette.textDim, align = if (alignRight) TextAlign.End else TextAlign.Start)
@@ -282,7 +285,7 @@ private fun PlayerPlate(
 }
 
 @Composable
-private fun PauseOverlay(onResume: () -> Unit, onRestart: () -> Unit, onQuit: () -> Unit, restartLabel: String) {
+internal fun PauseOverlay(onResume: () -> Unit, onRestart: () -> Unit, onQuit: () -> Unit, restartLabel: String) {
     val app = LocalApp.current
     Box(Modifier.fillMaxSize().background(Color(0xB3000000)).clickable(remember { MutableInteractionSource() }, null) {}, contentAlignment = Alignment.Center) {
         Panel(Modifier.widthIn(max = 420.dp).padding(20.dp)) {

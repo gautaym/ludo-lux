@@ -69,6 +69,21 @@ fun TestMatch(app: AppContext, board: String, seats: List<SeatConfig>, capture: 
     }
 }
 
+/** A Snake & Ladders game on its own (no series), for screenshots. */
+@Composable
+fun TestSnakes(app: AppContext, seats: List<SeatConfig>, resume: lux.core.SnakesState? = null, script: suspend (lux.game.SnakesDirector) -> Unit) {
+    ProvideLux(app) {
+        val stage = remember { Stage(app, BoardStyles.royal) }
+        val director = remember { lux.game.SnakesDirector(stage) }
+        StageClock(stage)
+        LaunchedEffect(Unit) {
+            director.start(seats, lux.core.SnakesRules(), 0, resume)
+            script(director)
+        }
+        lux.ui.SnakesScreen(stage, director, false, {}, {}, {}, {})
+    }
+}
+
 fun cpuSeats(n: Int = 4, human: Boolean = false): List<SeatConfig> {
     val names = listOf("Red", "Green", "Yellow", "Blue")
     val colors = when (n) { 2 -> listOf(0, 2); 3 -> listOf(0, 1, 2); else -> listOf(0, 1, 2, 3) }
@@ -186,6 +201,21 @@ fun main(args: Array<String>) {
         // A guest (no server running, so the group list shows the connection note) sees the save banner.
         val guest = TestPlatform().also { it.prefs.putString("token", "t"); it.prefs.putString("onlineName", "Mom"); it.prefs.putInt("onlineTag", 4821) }
         record("signin_guest", 3f, 1f, listOf(2.9f)) { LuxApp(AppContext(guest).also { it.net.changeServer("http://127.0.0.1:9") }, Nav().apply { screen = Screen.Family }) }
+    }
+    if ("snakes" in want) {
+        // The menu with Snake & Ladders chosen, then a whole 4-player game played by the computer.
+        val menuApp = AppContext(SilentPlatform).also { it.settings.game = lux.app.Settings.GAME_SNAKES }
+        record("snakes_menu", 1.2f, 1f, listOf(1.1f), w = 540, h = 1170, density = 1.375f) { LuxApp(menuApp, Nav()) }
+        val start = lux.core.SnakesState(intArrayOf(0, 1, 2, 3)).also { it.pos[1] = 12; it.pos[2] = 94; it.pos[3] = 40 }
+        record("snakes_moves", 16f, 0.25f, w = 540, h = 1170, density = 1.375f) {
+            TestSnakes(AppContext(SilentPlatform), cpuSeats(4), start) { d -> d.dice.enqueue(3, 4, 6, 2); d.run() }
+        }
+        val app = AppContext(SilentPlatform)
+        app.snakesSeries.save(Series(1, listOf(SeriesSeat(0, true, 1, "Red"), SeriesSeat(1, true, 1, "Green"), SeriesSeat(2, true, 1, "Yellow"), SeriesSeat(3, true, 1, "Blue"))))
+        val nav = Nav().apply { screen = Screen.Snakes }
+        record("snakes_game", 900f, 10f, w = 540, h = 1170, density = 1.375f) { LuxApp(app, nav) }
+        val after = app.snakesSeries.current
+        println("snakes series after: played=${after?.gameIndex} totals=${after?.let { x -> (0 until x.players).map { x.total(it) } }}")
     }
     if ("showcase" in want) {
         val app = AppContext(SilentPlatform)

@@ -85,7 +85,7 @@ private fun Avatar(st: BoardStyle, color: Int, size: Int = 44) {
  * so carrying on is the easy choice.
  */
 @Composable
-fun SeriesScoreboard(series: Series, last: GameResult, st: BoardStyle, onNext: () -> Unit, onMenu: () -> Unit) {
+fun SeriesScoreboard(series: Series, last: GameResult, st: BoardStyle, onNext: () -> Unit, onMenu: () -> Unit, showHome: Boolean = true) {
     val app = LocalApp.current
     val played = series.results.size
     val before = series.totalsBefore(played - 1)
@@ -116,7 +116,7 @@ fun SeriesScoreboard(series: Series, last: GameResult, st: BoardStyle, onNext: (
                             Spacer(Modifier.width(10.dp))
                             Column(Modifier.weight(1f)) {
                                 Label(s.name, 22.sp, Color.White, display = true)
-                                Label("${ordinal(last.ranks[seat])} place  ·  ${last.piecesHome[seat]} home", 13.sp, Palette.textDim)
+                                Label("${ordinal(last.ranks[seat])} place" + if (showHome) "  ·  ${last.piecesHome[seat]} home" else "", 13.sp, Palette.textDim)
                             }
                             // What this game added, popping in as the bars grow.
                             Box(
@@ -151,7 +151,7 @@ fun SeriesScoreboard(series: Series, last: GameResult, st: BoardStyle, onNext: (
 
 /** The end of the series: podium, trophies, confetti and (only now) the Loser sign. */
 @Composable
-fun SeriesChampion(series: Series, st: BoardStyle, onNew: () -> Unit, onMenu: () -> Unit) {
+fun SeriesChampion(series: Series, st: BoardStyle, onNew: () -> Unit, onMenu: () -> Unit, showHome: Boolean = true) {
     val app = LocalApp.current
     val order = series.standings()
     val places = series.places()
@@ -206,7 +206,7 @@ fun SeriesChampion(series: Series, st: BoardStyle, onNew: () -> Unit, onMenu: ()
                             Spacer(Modifier.width(8.dp))
                             Column(Modifier.weight(1f)) {
                                 Label(s.name, 20.sp, Color.White, display = true)
-                                Label("${series.wins(seat)} wins  ·  ${series.piecesHome(seat)} home", 12.sp, Palette.textDim)
+                                Label("${series.wins(seat)} wins" + if (showHome) "  ·  ${series.piecesHome(seat)} home" else "", 12.sp, Palette.textDim)
                             }
                             if (last) {
                                 Box(Modifier.clip(RoundedCornerShape(6.dp)).background(Color(0xFF8B5A2B)).border(1.5.dp, Color(0xFF4A2C10), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 1.dp)) {

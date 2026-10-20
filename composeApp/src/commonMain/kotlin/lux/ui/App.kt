@@ -54,8 +54,12 @@ fun LuxApp(app: AppContext, nav: Nav) {
                         Screen.Menu -> Box(Modifier.safeDrawingPadding()) {
                             MenuScreen(
                                 // PLAY always starts a new series; "Continue" picks up the saved one.
-                                onPlay = { app.series.save(null); nav.matchKey++; nav.screen = Screen.Match },
-                                onContinue = { nav.matchKey++; nav.screen = Screen.Match },
+                                onPlay = {
+                                    nav.matchKey++
+                                    if (app.settings.game == lux.app.Settings.GAME_SNAKES) { app.snakesSeries.save(null); nav.screen = Screen.Snakes }
+                                    else { app.series.save(null); nav.screen = Screen.Match }
+                                },
+                                onContinue = { nav.matchKey++; nav.screen = if (app.settings.game == lux.app.Settings.GAME_SNAKES) Screen.Snakes else Screen.Match },
                                 onEffects = { nav.screen = Screen.Showcase },
                                 onFamily = { nav.screen = Screen.Family },
                                 onRanked = { nav.screen = Screen.Ranked },
@@ -64,6 +68,7 @@ fun LuxApp(app: AppContext, nav: Nav) {
                             )
                         }
                         Screen.Match -> key(nav.matchKey) { MatchHost(app, nav, showcase = false) }
+                        Screen.Snakes -> key(nav.matchKey) { SnakesHost(app, nav) }
                         Screen.Showcase -> MatchHost(app, nav, showcase = true)
                         Screen.Family -> Box(Modifier.safeDrawingPadding()) { FamilyHome(nav) }
                         is Screen.Group -> Box(Modifier.safeDrawingPadding()) { GroupScreen(nav, screen.id) }
