@@ -278,3 +278,6 @@ fun DrawScope.lockIcon(c: Color) {
 fun DrawScope.sparkIcon(c: Color) {
     drawPath(lux.board.starPath(center.x, center.y, size.minDimension / 2, size.minDimension / 7, 4, 0f), c)
 }
+
+/** "1 win", "3 wins". */
+fun plural(n: Int, word: String) = if (n == 1) "1 $word" else "$n ${word}s"

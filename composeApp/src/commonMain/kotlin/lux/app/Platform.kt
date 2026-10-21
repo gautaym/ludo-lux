@@ -75,6 +75,7 @@ class Settings(private val prefs: Prefs) {
 
     private val _sound = bool("sound", true)
     private val _music = bool("music", true)
+    private val _developer = bool("developer", false)
     private val _hopSound = mutableStateOf(prefs.getInt("hopSound", 0))
     private val _caughtSound = mutableStateOf(prefs.getInt("caughtSound", 0))
     private val _haptics = bool("haptics", true)
@@ -97,6 +98,10 @@ class Settings(private val prefs: Prefs) {
     var sound: Boolean
         get() = _sound.value
         set(v) { _sound.value = v; prefs.putInt("sound", if (v) 1 else 0) }
+    /** Shows technical things (the game server's address). Turned on by tapping the version in Settings 5 times. */
+    var developer: Boolean
+        get() = _developer.value
+        set(v) { _developer.value = v; prefs.putInt("developer", if (v) 1 else 0) }
     /** The cheerful tune on the menu (never during a game). */
     var music: Boolean
         get() = _music.value

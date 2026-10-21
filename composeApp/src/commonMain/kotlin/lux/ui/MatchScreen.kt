@@ -148,7 +148,7 @@ fun MatchScreen(
         }
 
         // Player plates in the corners outside the board, next to each player's own yard.
-        if (!director.showcase) {
+        if (!director.showcase && !director.showResults) {
             val rv = director.rankVersion
             director.seats.forEachIndexed { seat, cfg ->
                 val corner = Geo.rotate(Geo.baseCentre(cfg.color), stage.viewTurns)
@@ -335,7 +335,7 @@ private fun ResultsOverlay(director: MatchDirector, onRestart: () -> Unit, onQui
                         Box(Modifier.size(18.dp).clip(CircleShape).background(st.seat[cfg.color]).border(2.dp, Color.White, CircleShape))
                         Spacer(Modifier.width(10.dp))
                         Label(cfg.name, 22.sp, Color.White, display = true, modifier = Modifier.weight(1f))
-                        Label(if (r == s.seatCount) "Loser" else if (cfg.cpu) "CPU" else "", 16.sp, Palette.textDim)
+                        Label(if (r == s.seatCount) "Next time" else if (cfg.cpu) "CPU" else "", 16.sp, Palette.textDim)
                     }
                 }
                 Spacer(Modifier.height(6.dp))

@@ -239,7 +239,7 @@ fun RankedScreen(nav: Nav) {
                         Label("Your rank shows after ${p.placementGames} games.", 13.sp, Palette.textDim)
                     } else {
                         RankLabel(p.division, 30.sp)
-                        Label("#${p.position} this season  ·  ${p.wins} wins", 14.sp, Palette.textDim)
+                        Label("#${p.position} this season  ·  ${plural(p.wins, "win")}", 14.sp, Palette.textDim)
                     }
                     if (p != null) {
                         // Progress through the current step (or through placement).
@@ -294,7 +294,7 @@ private fun LeaderRowView(r: LeaderRow) {
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RankLabel(r.division, 13.sp)
-                Label("  ·  ${r.wins} wins", 12.sp, Palette.textDim)
+                Label("  ·  ${plural(r.wins, "win")}", 12.sp, Palette.textDim)
             }
         }
     }

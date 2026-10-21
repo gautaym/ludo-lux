@@ -228,6 +228,12 @@ fun main(args: Array<String>) {
         val app = AppContext(SilentPlatform)
         ProvideLux(app) { lux.ui.SettingsOverlay {} }
     }
+    if ("home" in want) for ((name, sheet, game) in listOf(Triple("home", "", lux.app.Settings.GAME_LUDO), Triple("home_snakes", "", lux.app.Settings.GAME_SNAKES), Triple("home_setup", "setup", lux.app.Settings.GAME_LUDO), Triple("home_style", "style", lux.app.Settings.GAME_LUDO))) {
+        record(name, 1.0f, 1f, listOf(0.9f), w = 540, h = 1170, density = 1.375f) {
+            val app = AppContext(SilentPlatform).also { it.settings.game = game }
+            ProvideLux(app) { lux.ui.MenuScreen({}, {}, {}, {}, {}, {}, {}, startSheet = sheet) }
+        }
+    }
     if ("audio" in want) {
         // The synthesised sounds as WAV files, to listen to (and to time the menu tune).
         val dir = java.io.File("shots/audio").apply { mkdirs() }

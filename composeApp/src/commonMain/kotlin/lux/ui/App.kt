@@ -51,7 +51,13 @@ fun LuxApp(app: AppContext, nav: Nav) {
     LaunchedEffect(tune) { app.platform.music(tune) }
     ProvideLux(app) {
         Box(Modifier.fillMaxSize().background(Color(0xFF06161B))) {
-            AnimatedContent(nav.screen, transitionSpec = { fadeIn() togetherWith fadeOut() }) { screen ->
+            AnimatedContent(nav.screen, transitionSpec = {
+                // Going somewhere slides in from the right; coming back to the menu slides in from the left.
+                val back = targetState == Screen.Menu
+                val dir = if (back) -1 else 1
+                (androidx.compose.animation.slideInHorizontally(androidx.compose.animation.core.tween(320)) { it * dir / 6 } + fadeIn(androidx.compose.animation.core.tween(320))) togetherWith
+                    (androidx.compose.animation.slideOutHorizontally(androidx.compose.animation.core.tween(260)) { -it * dir / 6 } + fadeOut(androidx.compose.animation.core.tween(220)))
+            }) { screen ->
                 Box(Modifier.fillMaxSize()) {
                     when (screen) {
                         Screen.Menu -> Box(Modifier.safeDrawingPadding()) {

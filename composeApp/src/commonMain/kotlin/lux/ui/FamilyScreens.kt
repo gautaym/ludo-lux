@@ -178,7 +178,7 @@ fun FamilyHome(nav: Nav) {
                 BigButton("Join with code", { dialog = "join" }, Modifier.weight(1f), 60.dp, textSize = 21.sp)
             }
         }
-        Label("Server: ${net.server}", 12.sp, Palette.textDim, align = TextAlign.Center, modifier = Modifier.fillMaxWidth().clickable { dialog = "server" })
+        if (LocalApp.current.settings.developer) Label("Server: ${net.server}", 12.sp, Palette.textDim, align = TextAlign.Center, modifier = Modifier.fillMaxWidth().clickable { dialog = "server" })
     }
 
     AnimatedVisibility(dialog != null, enter = fadeIn(), exit = fadeOut()) {
@@ -429,7 +429,7 @@ private fun StandingRow(place: Int, m: MemberStanding, month: Boolean, me: Boole
                 Label(m.name + if (me) " (you)" else "", 20.sp, Color.White, display = true)
                 if (m.tag > 0) Label(" #${m.tag}", 12.sp, Palette.textDim)
             }
-            Label(if (month) "${m.monthGames} games this month" else "${m.games} games  ·  ${m.wins} wins  ·  ${m.seriesWon} series", 13.sp, Palette.textDim)
+            Label(if (month) "${plural(m.monthGames, "game")} this month" else "${plural(m.games, "game")}  ·  ${plural(m.wins, "win")}  ·  ${m.seriesWon} series", 13.sp, Palette.textDim)
         }
         Label("${if (month) m.monthPoints else m.points}", 26.sp, Palette.gold, display = true)
     }

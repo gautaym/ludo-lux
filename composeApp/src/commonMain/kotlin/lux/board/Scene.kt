@@ -671,7 +671,7 @@ private fun DrawScope.drawAward(a: AwardSprite, view: View, fonts: SceneFonts) {
             drawRoundRect(Brush.verticalGradient(listOf(Color(0.78f, 0.55f, 0.32f), Color(0.58f, 0.38f, 0.2f)), r.top, r.bottom), r.topLeft, r.size, CornerRadius(cell * 0.15f), alpha = alpha)
             for (i in 1..2) drawLine(Color(0.45f, 0.28f, 0.14f).copy(alpha = 0.6f * alpha), Offset(r.left + cell * 0.1f, r.top + h * i / 3), Offset(r.right - cell * 0.1f, r.top + h * i / 3), cell * 0.025f)
             drawRoundRect(Color(0.3f, 0.18f, 0.08f).copy(alpha = alpha), r.topLeft, r.size, CornerRadius(cell * 0.15f), style = Stroke(cell * 0.06f))
-            val text = fonts.measurer.measure(if (a.soft) "NEXT ROUND!" else "LOSER", TextStyle(color = Color(0.98f, 0.95f, 0.88f), fontFamily = fonts.display, fontSize = (cell * (if (a.soft) 0.45f else 0.62f) / density).sp, fontWeight = FontWeight.Bold))
+            val text = fonts.measurer.measure(if (a.soft) "NEXT ROUND!" else "NEXT TIME!", TextStyle(color = Color(0.98f, 0.95f, 0.88f), fontFamily = fonts.display, fontSize = (cell * 0.45f / density).sp, fontWeight = FontWeight.Bold))
             drawText(text, topLeft = Offset(c.x - text.size.width / 2f + cell * 0.03f, c.y - text.size.height / 2f + cell * 0.04f), color = Color(0.25f, 0.13f, 0.05f), alpha = alpha)
             drawText(text, topLeft = Offset(c.x - text.size.width / 2f, c.y - text.size.height / 2f), alpha = alpha)
         }

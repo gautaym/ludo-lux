@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -66,130 +67,296 @@ import lux.theme.BoardStyles
 import kotlin.math.sin
 
 @Composable
-fun MenuScreen(onPlay: () -> Unit, onContinue: () -> Unit, onEffects: () -> Unit, onFamily: () -> Unit, onRanked: () -> Unit, onShop: () -> Unit, onAdvertise: () -> Unit = {}) {
+fun MenuScreen(onPlay: () -> Unit, onContinue: () -> Unit, onEffects: () -> Unit, onFamily: () -> Unit, onRanked: () -> Unit, onShop: () -> Unit, onAdvertise: () -> Unit = {}, startSheet: String = "") {
     val app = LocalApp.current
     val s = app.settings
     val st = BoardStyles.get(s.board)
     var showSettings by remember { mutableStateOf(false) }
+    var showSetup by remember { mutableStateOf(startSheet == "setup") }
+    var showStyle by remember { mutableStateOf(startSheet == "style") }
     val spin = rememberInfiniteTransition()
     val t by spin.animateFloat(0f, 1000f, infiniteRepeatable(tween(1_000_000, easing = LinearEasing)))
+    val snakes = s.game == lux.app.Settings.GAME_SNAKES
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         Canvas(Modifier.fillMaxSize()) { drawBackdrop(st, t) }
-        Column(Modifier.fillMaxSize()) {
-            Column(
-                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(top = 12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    RoundIcon(onShop, size = 50.dp) { bagIcon(it) }
-                    Spacer(Modifier.weight(1f))
-                    RoundIcon({ showSettings = true }, size = 50.dp) { gearIcon(it) }
-                }
-                Logo(st, t)
-                Spacer(Modifier.height(14.dp))
-                Column(Modifier.widthIn(max = 560.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    GamePicker(st, t)
-                    Panel(Modifier.fillMaxWidth()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            Section("Players") { Segmented(listOf(2, 3, 4), s.players, { "$it" }, { s.players = it }) }
-                            Section("Games in a series") { Segmented(listOf(1, 3, 5), s.seriesLength, { if (it == 1) "1 game" else "$it games" }, { s.seriesLength = it }) }
-                            Section("Play with") { Segmented(listOf(true, false), s.vsComputer, { if (it) "Computer" else "Friends" }, { s.vsComputer = it }) }
-                            AnimatedVisibility(s.vsComputer && s.game != lux.app.Settings.GAME_SNAKES, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-                                Section("Computer level") { Segmented(listOf(0, 1, 2), s.cpuLevel, { listOf("Easy", "Medium", "Hard")[it] }, { s.cpuLevel = it }) }
-                            }
-                        }
-                    }
-                    Panel(Modifier.fillMaxWidth()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            Section("Board") { BoardPicker(onShop) }
-                            Section("Pieces") { PiecePicker(st, t) }
-                        }
-                    }
-                    if (s.game == lux.app.Settings.GAME_SNAKES) Panel(Modifier.fillMaxWidth()) {
-                        Section("Snake & Ladders rules") {
-                            Column {
-                                ToggleRow("Exact roll for 100", "Off: a bigger roll bounces back", s.snakesExact) { s.snakesExact = it }
-                                ToggleRow("Six rolls again", "Three sixes in a row and the turn passes", s.snakesSixAgain) { s.snakesSixAgain = it }
-                                ToggleRow("Six (or one) to start", "Off: everyone starts straight away", s.snakesNeedSix) { s.snakesNeedSix = it }
-                            }
-                        }
-                    }
-                    if (s.game != lux.app.Settings.GAME_SNAKES) Panel(Modifier.fillMaxWidth()) {
-                        Section("Capture effect") {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                val names = CaptureStyle.entries.map { it.title } + "Surprise"
-                                for (row in names.indices.chunked(4)) {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        for (i in row) {
-                                            val open = app.shop.unlocked(lux.core.Catalog.captureItem(i))
-                                            Chip(if (open) names[i] else "${names[i]} 🔒", s.capture == i && open, { if (open) s.capture = i else onShop() })
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    // For local businesses: a quiet link, never in the way of playing.
-                    val adClick = tap(onAdvertise)
+        // Home: a calm welcome. Choose a game, press PLAY; everything else waits in a sheet until it is wanted.
+        Column(Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(top = 12.dp, bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(Modifier.fillMaxWidth().widthIn(max = 560.dp), verticalAlignment = Alignment.CenterVertically) {
+                PillButton("Shop", onShop) { bagIcon(it) }
+                Spacer(Modifier.weight(1f))
+                RoundIcon({ showSettings = true }, size = 50.dp) { gearIcon(it) }
+            }
+            Spacer(Modifier.weight(0.6f))
+            Logo(st, t, snakes)
+            Spacer(Modifier.weight(0.5f))
+            Column(Modifier.widthIn(max = 560.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                GamePicker(st, t)
+                // What PLAY will start, in one friendly line (tap it to change).
+                val summaryClick = tap { showSetup = true }
+                Label(setupSummary(s), 15.sp, Palette.textDim, align = TextAlign.Center, modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = summaryClick).padding(horizontal = 10.dp, vertical = 4.dp))
+            }
+            Spacer(Modifier.weight(1f))
+            Column(Modifier.fillMaxWidth().widthIn(max = 560.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // A series left half-way is one tap away.
+                val saved = (if (snakes) app.snakesSeries else app.series).current?.takeIf { !it.isOver }
+                if (saved != null) {
+                    val click = tap(onContinue)
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color(0x33000000))
-                            .border(1.dp, Palette.panelEdge, RoundedCornerShape(18.dp)).clickable(onClick = adClick).padding(horizontal = 16.dp, vertical = 12.dp),
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+                            .background(Brush.horizontalGradient(listOf(Color(0xFF0F766E), Color(0xFF115E59))))
+                            .border(2.dp, Palette.teal, RoundedCornerShape(18.dp)).clickable(onClick = click).padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Label("Have a business?", 18.sp, Color.White, display = true)
-                            Label("Show your ad to players in your state", 14.sp, Palette.textDim)
+                            Label(if (snakes) "Continue Snake & Ladders" else "Continue series", 22.sp, Color.White, display = true)
+                            val leader = saved.seats[saved.standings()[0]]
+                            Label(
+                                if (saved.gameIndex == 0) "Game 1 of ${saved.games}" else "Game ${saved.gameIndex + 1} of ${saved.games}  ·  ${leader.name} leads with ${saved.total(saved.standings()[0])}",
+                                14.sp, Color(0xFFCCFBF1),
+                            )
                         }
-                        Label("Advertise", 17.sp, Palette.gold, display = true)
+                        ColorDots(st, saved.seats.map { it.color })
+                        Spacer(Modifier.width(10.dp))
+                        Canvas(Modifier.size(22.dp)) { playIcon(Color.White) }
                     }
-                    Spacer(Modifier.height(4.dp))
                 }
-            }
-            // A series left half-way is one tap away.
-            val saved = (if (s.game == lux.app.Settings.GAME_SNAKES) app.snakesSeries else app.series).current?.takeIf { !it.isOver }
-            if (saved != null) {
-                val click = tap(onContinue)
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(18.dp))
-                        .background(Brush.horizontalGradient(listOf(Color(0xFF0F766E), Color(0xFF115E59))))
-                        .border(2.dp, Palette.teal, RoundedCornerShape(18.dp)).clickable(onClick = click).padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Label(if (s.game == lux.app.Settings.GAME_SNAKES) "Continue Snake & Ladders" else "Continue series", 22.sp, Color.White, display = true)
-                        val leader = saved.seats[saved.standings()[0]]
-                        Label(
-                            if (saved.gameIndex == 0) "Game 1 of ${saved.games}" else "Game ${saved.gameIndex + 1} of ${saved.games}  ·  ${leader.name} leads with ${saved.total(saved.standings()[0])}",
-                            14.sp, Color(0xFFCCFBF1),
-                        )
-                    }
-                    ColorDots(st, saved.seats.map { it.color })
-                    Spacer(Modifier.width(10.dp))
-                    Canvas(Modifier.size(22.dp)) { playIcon(Color.White) }
-                }
-            }
-            // PLAY is pinned to the bottom: always visible, always the biggest thing on screen.
-            Column(
-                Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xCC051419)))).padding(16.dp).padding(bottom = 8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
                 val pulse = 1f + 0.025f * sin(t * 3.2f)
-                BigButton("PLAY", onPlay, Modifier.fillMaxWidth().widthIn(max = 560.dp).scale(pulse), 76.dp, textSize = 38.sp, icon = { playIcon(it) })
-                Row(Modifier.widthIn(max = 560.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    BigButton("Family", onFamily, Modifier.weight(1f), 60.dp, Color(0xFF5EEAD4), Color(0xFF0F766E), Color(0xFF032E2A), 21.sp)
-                    BigButton("Ranked", onRanked, Modifier.weight(1f), 60.dp, Color(0xFFF0ABFC), Color(0xFF9333EA), Color(0xFF2E0A3D), 21.sp)
-                    BigButton("Effects", onEffects, Modifier.weight(1f), 60.dp, Color(0xFF7DD3FC), Color(0xFF2563EB), Color(0xFF0B1E4A), 21.sp)
+                BigButton("PLAY", { showSetup = true }, Modifier.fillMaxWidth().scale(pulse), 80.dp, textSize = 40.sp, icon = { playIcon(it) })
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SecondaryButton("Family", onFamily, Modifier.weight(1f)) { familyIcon(it) }
+                    SecondaryButton("Ranked", onRanked, Modifier.weight(1f)) { trophyIcon(it) }
+                    SecondaryButton("Style", { showStyle = true }, Modifier.weight(1f)) { paletteIcon(it) }
                 }
             }
         }
-        AnimatedVisibility(showSettings, enter = fadeIn(), exit = fadeOut()) { SettingsOverlay { showSettings = false } }
+        Sheet(showSetup, if (snakes) "Snake & Ladders" else "Ludo", { showSetup = false }) {
+            SetupContent(snakes)
+            Spacer(Modifier.height(6.dp))
+            BigButton("START", { showSetup = false; onPlay() }, Modifier.fillMaxWidth(), 72.dp, textSize = 34.sp, icon = { playIcon(it) })
+        }
+        Sheet(showStyle, "Style", { showStyle = false }) {
+            StyleContent(st, t, snakes, onShop)
+            val reel = tap { showStyle = false; onEffects() }
+            Label("Watch every effect  ›", 18.sp, Palette.gold, display = true, align = TextAlign.Center, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = reel).padding(10.dp))
+        }
+        AnimatedVisibility(showSettings, enter = fadeIn(), exit = fadeOut()) { SettingsOverlay(onAdvertise = { showSettings = false; onAdvertise() }) { showSettings = false } }
+    }
+}
+
+/** "4 players · vs Computer (Medium) · 3 games": what PLAY will start. */
+private fun setupSummary(s: lux.app.Settings): String {
+    val who = if (s.vsComputer) {
+        if (s.game == lux.app.Settings.GAME_SNAKES) "Computer" else "${listOf("Easy", "Medium", "Hard")[s.cpuLevel]} computer"
+    } else "Friends"
+    val games = if (s.seriesLength == 1) "1 game" else "${s.seriesLength} games"
+    return "${s.players} players  ·  $who  ·  $games  ✎"
+}
+
+/** Who plays, how many games, and (for Snake & Ladders) the house rules. */
+@Composable
+private fun SetupContent(snakes: Boolean) {
+    val s = LocalApp.current.settings
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Section("Players") { Segmented(listOf(2, 3, 4), s.players, { "$it" }, { s.players = it }) }
+        Section("Play with") { Segmented(listOf(true, false), s.vsComputer, { if (it) "Computer" else "Friends" }, { s.vsComputer = it }) }
+        AnimatedVisibility(s.vsComputer && !snakes, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+            Section("Computer level") { Segmented(listOf(0, 1, 2), s.cpuLevel, { listOf("Easy", "Medium", "Hard")[it] }, { s.cpuLevel = it }) }
+        }
+        Section("Games in a series") { Segmented(listOf(1, 3, 5), s.seriesLength, { if (it == 1) "1 game" else "$it games" }, { s.seriesLength = it }) }
+        if (snakes) Section("House rules") {
+            Column {
+                ToggleRow("Exact roll for 100", "Off: a bigger roll bounces back", s.snakesExact) { s.snakesExact = it }
+                ToggleRow("Six rolls again", "Three sixes in a row and the turn passes", s.snakesSixAgain) { s.snakesSixAgain = it }
+                ToggleRow("Six (or one) to start", "Off: everyone starts straight away", s.snakesNeedSix) { s.snakesNeedSix = it }
+            }
+        }
+    }
+}
+
+/** The look of the game: board, pieces and (in Ludo) the capture effect. */
+@Composable
+private fun StyleContent(st: lux.theme.BoardStyle, t: Float, snakes: Boolean, onShop: () -> Unit) {
+    val app = LocalApp.current
+    val s = app.settings
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Section("Board") { BoardPicker(onShop) }
+        Section("Pieces") { PiecePicker(st, t) }
+        if (!snakes) Section("Capture effect") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val names = CaptureStyle.entries.map { it.title } + "Surprise"
+                for (row in names.indices.chunked(4)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (i in row) {
+                            val open = app.shop.unlocked(lux.core.Catalog.captureItem(i))
+                            Chip(if (open) names[i] else "${names[i]} 🔒", s.capture == i && open, { if (open) s.capture = i else onShop() })
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A panel that slides up from the bottom over a dimmed screen (tap outside or the cross to close). Its content scrolls
+ * when it is taller than the screen.
+ */
+@Composable
+fun Sheet(open: Boolean, title: String, onClose: () -> Unit, content: @Composable () -> Unit) {
+    AnimatedVisibility(open, enter = fadeIn(tween(180)), exit = fadeOut(tween(180))) {
+        Box(Modifier.fillMaxSize().background(Color(0xB3000000)).clickable(remember { MutableInteractionSource() }, null, onClick = onClose))
+    }
+    AnimatedVisibility(
+        open,
+        enter = androidx.compose.animation.slideInVertically(tween(260)) { it } + fadeIn(tween(200)),
+        exit = androidx.compose.animation.slideOutVertically(tween(200)) { it } + fadeOut(tween(160)),
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+            Column(
+                Modifier.widthIn(max = 600.dp).fillMaxWidth().heightIn(max = 760.dp)
+                    .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                    .background(Brush.verticalGradient(listOf(Color(0xFF15414B), Color(0xFF0A222A))))
+                    .border(1.5.dp, Palette.panelEdge, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                    .clickable(remember { MutableInteractionSource() }, null) {}
+                    .padding(horizontal = 18.dp).padding(top = 10.dp, bottom = 18.dp),
+            ) {
+                // A grab handle, then the title row.
+                Box(Modifier.align(Alignment.CenterHorizontally).size(44.dp, 5.dp).clip(RoundedCornerShape(3.dp)).background(Color(0x55FFFFFF)))
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Label(title, 30.sp, Palette.gold, display = true, modifier = Modifier.weight(1f))
+                    RoundIcon(onClose, size = 44.dp) { closeIcon(it) }
+                }
+                Spacer(Modifier.height(10.dp))
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) { content() }
+            }
+        }
+    }
+}
+
+/** A quieter button in the theme's teal, for everything that isn't PLAY. */
+@Composable
+private fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, icon: androidx.compose.ui.graphics.drawscope.DrawScope.(Color) -> Unit) {
+    val click = tap(onClick)
+    Column(
+        modifier.height(76.dp).clip(RoundedCornerShape(20.dp))
+            .background(Brush.verticalGradient(listOf(Color(0xFF1F5A64), Color(0xFF0E3239))))
+            .border(1.5.dp, Color(0xFF2DD4BF).copy(alpha = 0.55f), RoundedCornerShape(20.dp))
+            .clickable(onClick = click).padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+    ) {
+        Canvas(Modifier.size(28.dp)) { icon(Color(0xFFCCFBF1)) }
+        Spacer(Modifier.height(4.dp))
+        Label(text, 19.sp, Color.White, display = true)
+    }
+}
+
+/** A small rounded button with an icon and a word (the Shop at the top). */
+@Composable
+private fun PillButton(text: String, onClick: () -> Unit, icon: androidx.compose.ui.graphics.drawscope.DrawScope.(Color) -> Unit) {
+    val click = tap(onClick)
+    Row(
+        Modifier.height(50.dp).clip(RoundedCornerShape(25.dp)).background(Color(0x66000000)).border(1.5.dp, Palette.panelEdge, RoundedCornerShape(25.dp))
+            .clickable(onClick = click).padding(start = 12.dp, end = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Canvas(Modifier.size(26.dp)) { icon(Palette.gold) }
+        Spacer(Modifier.width(8.dp))
+        Label(text, 19.sp, Palette.gold, display = true)
+    }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.familyIcon(c: Color) {
+    val w = size.width; val h = size.height
+    // Two grown-ups and a child.
+    for ((x, r, top) in listOf(Triple(0.28f, 0.13f, 0.18f), Triple(0.72f, 0.13f, 0.18f), Triple(0.5f, 0.1f, 0.42f))) {
+        drawCircle(c, w * r, Offset(w * x, h * (top + r)))
+        val bodyTop = h * (top + 2 * r + 0.04f)
+        drawRoundRect(c, Offset(w * (x - r * 1.35f), bodyTop), androidx.compose.ui.geometry.Size(w * r * 2.7f, h * 0.95f - bodyTop), androidx.compose.ui.geometry.CornerRadius(w * r * 1.2f))
+    }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.trophyIcon(c: Color) {
+    val w = size.width; val h = size.height
+    val cup = androidx.compose.ui.graphics.Path().apply {
+        moveTo(w * 0.22f, h * 0.1f); lineTo(w * 0.78f, h * 0.1f)
+        cubicTo(w * 0.78f, h * 0.5f, w * 0.62f, h * 0.6f, w * 0.5f, h * 0.6f)
+        cubicTo(w * 0.38f, h * 0.6f, w * 0.22f, h * 0.5f, w * 0.22f, h * 0.1f); close()
+    }
+    drawPath(cup, c)
+    for (sx in listOf(-1f, 1f)) drawCircle(c, w * 0.12f, Offset(w * (0.5f + sx * 0.3f), h * 0.25f), style = androidx.compose.ui.graphics.drawscope.Stroke(w * 0.06f))
+    drawRect(c, Offset(w * 0.45f, h * 0.58f), androidx.compose.ui.geometry.Size(w * 0.1f, h * 0.2f))
+    drawRoundRect(c, Offset(w * 0.28f, h * 0.78f), androidx.compose.ui.geometry.Size(w * 0.44f, h * 0.12f), androidx.compose.ui.geometry.CornerRadius(w * 0.04f))
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.paletteIcon(c: Color) {
+    val w = size.width; val h = size.height
+    drawCircle(c, w * 0.44f, Offset(w * 0.5f, h * 0.5f))
+    val holes = listOf(Color(0xFFD61A29), Color(0xFF0A9952), Color(0xFFFFCC0F), Color(0xFF1F57E0))
+    val spots = listOf(Offset(0.32f, 0.32f), Offset(0.55f, 0.24f), Offset(0.74f, 0.42f), Offset(0.3f, 0.6f))
+    for ((i, p) in spots.withIndex()) drawCircle(holes[i], w * 0.09f, Offset(w * p.x, h * p.y))
+    drawCircle(Color(0xFF0E3239), w * 0.1f, Offset(w * 0.6f, h * 0.68f))
+}
+
+@Composable
+private fun Logo(st: lux.theme.BoardStyle, t: Float, snakes: Boolean) {
+    // Same height for both games, so nothing below jumps when switching.
+    Box(Modifier.height(140.dp), contentAlignment = Alignment.Center) {
+        androidx.compose.animation.Crossfade(snakes) { sn ->
+            if (sn) SnakesLogo(st, t) else LudoLogo(st, t)
+        }
+    }
+}
+
+/** The title in gold with a soft dark offset behind it. */
+@Composable
+private fun GoldTitle(text: String, size: androidx.compose.ui.unit.TextUnit) {
+    Box {
+        Label(text, size, Color(0xFF6B3A00), display = true, modifier = Modifier.padding(start = 3.dp, top = 4.dp))
+        Label(text, size, Palette.gold, display = true)
     }
 }
 
 @Composable
-private fun Logo(st: lux.theme.BoardStyle, t: Float) {
-    val fonts = LocalFonts.current
+private fun SnakesLogo(st: lux.theme.BoardStyle, t: Float) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Canvas(Modifier.size(64.dp, 96.dp)) {
+            // A little wooden ladder.
+            val h = size.height
+            for (sx in listOf(-1f, 1f)) drawLine(Color(0xFFC98B4A), Offset(center.x + sx * h * 0.14f, h * 0.06f), Offset(center.x + sx * h * 0.14f, h * 0.94f), h * 0.06f, androidx.compose.ui.graphics.StrokeCap.Round)
+            for (r in 1..5) drawLine(Color(0xFFE8B57A), Offset(center.x - h * 0.14f, h * r * 0.16f), Offset(center.x + h * 0.14f, h * r * 0.16f), h * 0.045f)
+        }
+        Spacer(Modifier.width(6.dp))
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            GoldTitle("Snake &", 46.sp)
+            GoldTitle("Ladders", 46.sp)
+            Label("LUDOLUX", 18.sp, Color.White, display = true)
+        }
+        Spacer(Modifier.width(6.dp))
+        Canvas(Modifier.size(64.dp, 96.dp)) {
+            // A friendly snake, gently swaying.
+            val path = androidx.compose.ui.graphics.Path()
+            for (i in 0..30) {
+                val q = i / 30f
+                val x = size.width * 0.5f + sin(q * 8f + t * 2.6f) * size.width * 0.22f * (0.4f + q)
+                val y = size.height * (0.12f + q * 0.82f)
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            drawPath(path, Color(0xFF45206B), style = androidx.compose.ui.graphics.drawscope.Stroke(size.width * 0.2f, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+            drawPath(path, Color(0xFF8E54C9), style = androidx.compose.ui.graphics.drawscope.Stroke(size.width * 0.14f, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+            val hx = size.width * 0.5f + sin(t * 2.6f) * size.width * 0.22f * 0.4f
+            drawCircle(Color(0xFF8E54C9), size.width * 0.15f, Offset(hx, size.height * 0.12f))
+            for (sx in listOf(-1f, 1f)) {
+                drawCircle(Color.White, size.width * 0.045f, Offset(hx + sx * size.width * 0.06f, size.height * 0.1f))
+                drawCircle(Color(0xFF111111), size.width * 0.022f, Offset(hx + sx * size.width * 0.06f, size.height * 0.1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun LudoLogo(st: lux.theme.BoardStyle, t: Float) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Canvas(Modifier.size(84.dp)) {
             // A real 3D die tumbling slowly beside the title.
@@ -197,10 +364,7 @@ private fun Logo(st: lux.theme.BoardStyle, t: Float) {
         }
         Spacer(Modifier.width(8.dp))
         Column {
-            Box {
-                Label("Ludo", 64.sp, Color(0xFF6B3A00), display = true, modifier = Modifier.padding(start = 3.dp, top = 4.dp))
-                Label("Ludo", 64.sp, Palette.gold, display = true)
-            }
+            GoldTitle("Ludo", 64.sp)
             Label("LUX", 26.sp, Color.White, display = true, modifier = Modifier.padding(start = 4.dp))
         }
         Spacer(Modifier.width(8.dp))
@@ -221,13 +385,13 @@ private fun GamePicker(st: lux.theme.BoardStyle, t: Float) {
             val k by animateFloatAsState(if (on) 1f else 0f)
             val click = tap { app.settings.game = id }
             Column(
-                Modifier.weight(1f).clip(RoundedCornerShape(20.dp))
+                Modifier.weight(1f).height(150.dp).clip(RoundedCornerShape(22.dp))
                     .background(Brush.verticalGradient(listOf(lerp(Color(0x55000000), Color(0xFF7C4A03), k), lerp(Color(0x55000000), Color(0xFF3A2200), k))))
                     .border((1 + 2 * k).dp, lerp(Palette.panelEdge, Palette.gold, k), RoundedCornerShape(20.dp))
                     .clickable(onClick = click).padding(10.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
             ) {
-                Canvas(Modifier.fillMaxWidth().height(58.dp)) {
+                Canvas(Modifier.fillMaxWidth().height(80.dp)) {
                     val c = Offset(size.width / 2, size.height / 2)
                     if (id == lux.app.Settings.GAME_LUDO) {
                         drawCube(Offset(c.x - size.height * 0.55f, c.y), size.height * 0.26f, 25f + (if (on) t * 37f else 0f), 35f, 0f, st.diceBody, st.dicePip)
@@ -250,7 +414,7 @@ private fun GamePicker(st: lux.theme.BoardStyle, t: Float) {
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Label(title, 20.sp, if (on) Palette.gold else Palette.text, display = true, align = TextAlign.Center)
+                Label(title, 19.sp, if (on) Palette.gold else Palette.text, display = true, align = TextAlign.Center)
             }
         }
     }
@@ -334,10 +498,11 @@ private fun SoundChoice(title: String, names: List<String>, selected: Int, onPic
 }
 
 @Composable
-fun SettingsOverlay(onClose: () -> Unit) {
+fun SettingsOverlay(onAdvertise: (() -> Unit)? = null, onClose: () -> Unit) {
     val app = LocalApp.current
     val s = app.settings
     var areaOpen by remember { mutableStateOf(false) }
+    var versionTaps by remember { mutableStateOf(0) }
     Box(Modifier.fillMaxSize().background(Color(0xB3000000)).clickable(remember { MutableInteractionSource() }, null, onClick = onClose), contentAlignment = Alignment.Center) {
         Panel(Modifier.widthIn(max = 460.dp).padding(18.dp).clickable(remember { MutableInteractionSource() }, null) {}) {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -373,8 +538,25 @@ fun SettingsOverlay(onClose: () -> Unit) {
                     }
                     Label("Change", 15.sp, Palette.gold, display = true)
                 }
+                if (onAdvertise != null) {
+                    // For local businesses: a quiet link, never in the way of playing.
+                    val adClick = tap(onAdvertise)
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = adClick).padding(vertical = 10.dp, horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Label("Have a business?", 19.sp, Palette.text, display = true)
+                            Label("Show your ad to players in your state", 14.sp, Palette.textDim)
+                        }
+                        Label("Advertise", 15.sp, Palette.gold, display = true)
+                    }
+                }
                 Spacer(Modifier.height(4.dp))
-                Label("Ludo Lux 0.2 - made with Kotlin", 13.sp, Palette.textDim, align = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                Label(
+                    "Ludo Lux 0.3" + if (s.developer) "  ·  developer mode" else "", 13.sp, Palette.textDim, align = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().clickable(remember { MutableInteractionSource() }, null) {
+                        versionTaps++
+                        if (versionTaps >= 5) { versionTaps = 0; s.developer = !s.developer }
+                    },
+                )
                 Label("Area lookup: IP Geolocation by DB-IP (db-ip.com)", 11.sp, Palette.textDim, align = TextAlign.Center, modifier = Modifier.fillMaxWidth())
             }
         }

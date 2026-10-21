@@ -101,7 +101,7 @@ fun SeriesScoreboard(series: Series, last: GameResult, st: BoardStyle, onNext: (
     val doubled = series.multiplier(played - 1) > 1
     val nextIsFinal = !series.isOver && series.isFinal(series.gameIndex)
 
-    Box(Modifier.fillMaxSize().background(Color(0xB3000000)).clickable(remember { MutableInteractionSource() }, null) {}, contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxSize().background(Color(0xE6030E10)).clickable(remember { MutableInteractionSource() }, null) {}, contentAlignment = Alignment.Center) {
         Panel(Modifier.widthIn(max = 460.dp).padding(18.dp)) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Label("Game $played of ${series.games}", 34.sp, Palette.gold, display = true, shadow = true)
@@ -165,7 +165,7 @@ fun SeriesChampion(series: Series, st: BoardStyle, onNew: () -> Unit, onMenu: ()
     }
     val title = if (series.games == 1) "Winner!" else "Series champion!"
 
-    Box(Modifier.fillMaxSize().background(Color(0xCC03100F)).clickable(remember { MutableInteractionSource() }, null) {}) {
+    Box(Modifier.fillMaxSize().background(Color(0xF203100F)).clickable(remember { MutableInteractionSource() }, null) {}) {
         // Confetti falling over everything.
         Canvas(Modifier.fillMaxSize()) {
             val pal = st.seat + listOf(Palette.gold, Color.White)
@@ -206,11 +206,11 @@ fun SeriesChampion(series: Series, st: BoardStyle, onNew: () -> Unit, onMenu: ()
                             Spacer(Modifier.width(8.dp))
                             Column(Modifier.weight(1f)) {
                                 Label(s.name, 20.sp, Color.White, display = true)
-                                Label("${series.wins(seat)} wins" + if (showHome) "  ·  ${series.piecesHome(seat)} home" else "", 12.sp, Palette.textDim)
+                                Label(plural(series.wins(seat), "win") + if (showHome) "  ·  ${series.piecesHome(seat)} home" else "", 12.sp, Palette.textDim)
                             }
                             if (last) {
                                 Box(Modifier.clip(RoundedCornerShape(6.dp)).background(Color(0xFF8B5A2B)).border(1.5.dp, Color(0xFF4A2C10), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 1.dp)) {
-                                    Label("LOSER", 13.sp, Color(0xFFFDF2DD), display = true)
+                                    Label("NEXT TIME", 13.sp, Color(0xFFFDF2DD), display = true)
                                 }
                                 Spacer(Modifier.width(8.dp))
                             }
