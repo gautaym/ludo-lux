@@ -552,7 +552,7 @@ class MatchDirector(val stage: Stage) {
                     showcaseSeconds += 0.5f - HOP_LAST
                 } else {
                     val safe = last && Board.isOnTrack(p) && Board.isSafeSquare(Board.globalIndex(color, p))
-                    app.sfx(SfxId.Pip, 0.6f, 0.95f + (p - e.from) * 0.035f)
+                    app.hop(p - e.from - 1)
                     stage.hop(pc, to, if (last) HOP_LAST else HOP_STEP, if (last) HOP_LAST_HEIGHT else HOP_HEIGHT, {
                         if (last) {
                             stage.landingDust(to, col)
@@ -764,7 +764,7 @@ class MatchDirector(val stage: Stage) {
                 val last = p == to
                 val at = Geo.piece(color, piece, p)
                 if (p == Board.HOME_LANE_START) st.laneEntry(at, style.seat[color])
-                app.sfx(SfxId.Pip, 0.6f, 0.95f + (p - from) * 0.035f)
+                app.hop(p - from - 1)
                 st.hop(pc, at, if (last) HOP_LAST else HOP_STEP, if (last) HOP_LAST_HEIGHT else HOP_HEIGHT, {
                     if (last) { st.landingDust(at, style.seat[color]); app.sfx(SfxId.Land, 0.7f); onLast?.invoke(at) }
                 }, anticipate = p == from + 1)

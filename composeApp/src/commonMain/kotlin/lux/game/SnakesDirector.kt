@@ -187,7 +187,7 @@ class SnakesDirector(val stage: Stage) {
         for ((i, cell) in steps.withIndex()) {
             val last = i == steps.lastIndex
             val dest = SnakesGeo.centre(cell)
-            app.sfx(SfxId.Pip, 0.6f, 0.95f + i * 0.035f)
+            app.hop(i)
             stage.hop(pc, dest, if (last) 0.24f else 0.17f, if (last) 1.2f else 0.85f, {
                 if (last) { stage.landingDust(dest, col); app.sfx(SfxId.Land, 0.7f); app.haptic(Haptic.Light) }
             }, anticipate = i == 0, scale = solo)

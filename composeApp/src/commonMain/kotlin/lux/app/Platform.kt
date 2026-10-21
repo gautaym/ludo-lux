@@ -1,5 +1,6 @@
 package lux.app
 
+import kotlin.math.pow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -73,6 +74,8 @@ class Settings(private val prefs: Prefs) {
 
     private val _sound = bool("sound", true)
     private val _music = bool("music", true)
+    private val _hopSound = mutableStateOf(prefs.getInt("hopSound", 0))
+    private val _caughtSound = mutableStateOf(prefs.getInt("caughtSound", 0))
     private val _haptics = bool("haptics", true)
     private val _reducedMotion = bool("reducedMotion", false)
     private val _balancedDice = bool("balancedDice", true)
@@ -97,6 +100,14 @@ class Settings(private val prefs: Prefs) {
     var music: Boolean
         get() = _music.value
         set(v) { _music.value = v; prefs.putInt("music", if (v) 1 else 0) }
+    /** The sound for each square a piece hops: see [HOP_SOUNDS]. */
+    var hopSound: Int
+        get() = _hopSound.value
+        set(v) { _hopSound.value = v; prefs.putInt("hopSound", v) }
+    /** The sound when a piece is caught: see [AppContext.CAUGHT_SOUNDS]. */
+    var caughtSound: Int
+        get() = _caughtSound.value
+        set(v) { _caughtSound.value = v; prefs.putInt("caughtSound", v) }
     var haptics: Boolean
         get() = _haptics.value
         set(v) { _haptics.value = v; prefs.putInt("haptics", if (v) 1 else 0) }
@@ -199,6 +210,42 @@ class AppContext(val platform: Platform) {
     val ads = AdsState(platform.prefs, net)
 
     fun sfx(id: SfxId, volume: Float = 1f, pitch: Float = 1f) { if (settings.sound) platform.play(id, volume, pitch) }
+
+    /** The hop sound for the [step]th square of a move (0 = first), in the player's chosen style. */
+    fun hop(step: Int) {
+        when (settings.hopSound) {
+            HOP_NOTES -> sfx(SfxId.HopNote, 0.55f, 2f.pow(SCALE[step % SCALE.size] / 12f))
+            HOP_BOING -> sfx(SfxId.HopBoing, 0.55f, 0.95f + step * 0.04f)
+            HOP_TABLA -> sfx(SfxId.HopTabla, 0.65f, 0.97f + step * 0.02f)
+            HOP_WOOD -> sfx(SfxId.Hop, 0.55f, 0.95f + step * 0.03f)
+            HOP_OFF -> {}
+            else -> sfx(SfxId.Pip, 0.6f, 0.95f + step * 0.035f)
+        }
+    }
+
+    /** The "a piece was caught" sound, in the player's chosen style. */
+    fun caught() {
+        when (settings.caughtSound) {
+            1 -> sfx(SfxId.CaughtWomp, 0.9f)
+            2 -> sfx(SfxId.CaughtWhistle, 0.8f)
+            3 -> sfx(SfxId.CaughtBonk, 0.9f)
+            4 -> {}
+            else -> sfx(SfxId.Caught, 0.9f)
+        }
+    }
+
+    companion object {
+        val CAUGHT_SOUNDS = listOf("Uh-oh", "Wah-wah", "Whistle", "Bonk", "Off")
+        const val HOP_PIP = 0
+        const val HOP_NOTES = 1
+        const val HOP_BOING = 2
+        const val HOP_TABLA = 3
+        const val HOP_WOOD = 4
+        const val HOP_OFF = 5
+        val HOP_SOUNDS = listOf("Pip", "Notes", "Boing", "Tabla", "Wood", "Off")
+        /** Do re mi fa so la ti do (semitones above the first note). */
+        private val SCALE = intArrayOf(0, 2, 4, 5, 7, 9, 11, 12)
+    }
     fun haptic(s: Haptic) { if (settings.haptics) platform.vibrate(s) }
 }
 

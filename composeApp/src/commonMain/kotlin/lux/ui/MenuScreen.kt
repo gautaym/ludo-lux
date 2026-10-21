@@ -1,5 +1,6 @@
 package lux.ui
 
+import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -323,6 +324,15 @@ private fun BoardPicker(onShop: () -> Unit) {
     }
 }
 
+/** A titled set of sound choices, three to a row. */
+@Composable
+private fun SoundChoice(title: String, names: List<String>, selected: Int, onPick: (Int) -> Unit) {
+    Column(Modifier.padding(vertical = 6.dp, horizontal = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Label(title, 18.sp, Palette.text)
+        for (row in names.indices.chunked(3)) Segmented(row, selected, { names[it] }, onPick, height = 48.dp)
+    }
+}
+
 @Composable
 fun SettingsOverlay(onClose: () -> Unit) {
     val app = LocalApp.current
@@ -330,13 +340,23 @@ fun SettingsOverlay(onClose: () -> Unit) {
     var areaOpen by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().background(Color(0xB3000000)).clickable(remember { MutableInteractionSource() }, null, onClick = onClose), contentAlignment = Alignment.Center) {
         Panel(Modifier.widthIn(max = 460.dp).padding(18.dp).clickable(remember { MutableInteractionSource() }, null) {}) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Label("Settings", 34.sp, Palette.gold, display = true, modifier = Modifier.weight(1f))
                     RoundIcon(onClose, size = 44.dp) { closeIcon(it) }
                 }
                 ToggleRow("Sound", null, s.sound) { s.sound = it }
                 ToggleRow("Music", "A happy tune on this screen", s.music) { s.music = it }
+                // The sound for every square a piece hops (choosing one plays a little walk of it), and for a catch.
+                val scope = androidx.compose.runtime.rememberCoroutineScope()
+                SoundChoice("Hop sound", lux.app.AppContext.HOP_SOUNDS, s.hopSound) { v ->
+                    s.hopSound = v
+                    scope.launch { for (i in 0 until 5) { app.hop(i); kotlinx.coroutines.delay(170) } }
+                }
+                SoundChoice("Caught sound", lux.app.AppContext.CAUGHT_SOUNDS, s.caughtSound) { v ->
+                    s.caughtSound = v
+                    app.caught()
+                }
                 ToggleRow("Vibration", null, s.haptics) { s.haptics = it }
                 ToggleRow("Balanced dice", "Sixes come in time; nobody stays stuck", s.balancedDice) { s.balancedDice = it }
                 ToggleRow("Lucky six", "After 4 tries with all pieces home, a six", s.luckySix) { s.luckySix = it }

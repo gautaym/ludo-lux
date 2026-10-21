@@ -56,7 +56,7 @@ const val CAPTURE_TEMPO = 1.25f
 const val CAPTURE_FX = 1.25f
 
 /** The moment of the catch: an "uh-oh" so everyone hears a piece was caught. */
-private fun Stage.caught() = app.sfx(SfxId.Caught, 0.9f)
+private fun Stage.caught() = app.caught()
 
 /** The catcher's little victory dance on the square: a jump of joy in a shower of its own colour. */
 private suspend fun Stage.gotcha(c: CaptureContext) {

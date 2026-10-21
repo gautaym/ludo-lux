@@ -7,6 +7,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlin.random.Random
 
 enum class SfxId {
@@ -18,6 +19,10 @@ enum class SfxId {
     Pip,
     /** "Uh-oh": a piece has been caught. */
     Caught,
+    /** Other hop sounds to choose from: a musical note (played up a scale), a springy boing, a tabla tap. */
+    HopNote, HopBoing, HopTabla,
+    /** Other "caught" sounds: a sad trombone, a falling slide whistle, a cartoon bonk. */
+    CaughtWomp, CaughtWhistle, CaughtBonk,
 }
 
 /**
@@ -57,6 +62,13 @@ object Synth {
         SfxId.Riser -> listOf(mix(offset(noise(0.9f, 0.4f, 2500f, 0.2f, 95, 0.7f), 0f, 1.3f), offset(tone(0.9f, 220f, 880f, 0.22f, 0.6f, 0.3f, 4f), 0f, 1.3f), offset(bell(1046.5f, 0.6f, 0.3f), 0.85f, 1.3f), offset(bell(1568f, 0.6f, 0.2f), 0.85f, 1.3f)))
         SfxId.Pip -> (0 until 3).map { pip(it) }
         SfxId.Caught -> listOf(uhOh())
+        // C6: played at higher pitches for the next notes of the scale.
+        SfxId.HopNote -> listOf(mix(bell(1046.5f, 0.35f, 0.32f), tone(0.12f, 1046.5f, 1046.5f, 0.12f, 0.002f, 25f, 0f)))
+        SfxId.HopBoing -> (0 until 2).map { boing(it) }
+        SfxId.HopTabla -> (0 until 3).map { tabla(it) }
+        SfxId.CaughtWomp -> listOf(womp())
+        SfxId.CaughtWhistle -> listOf(slideWhistle())
+        SfxId.CaughtBonk -> listOf(bonk())
         SfxId.Penalty -> listOf(mix(tone(0.5f, 440f, 110f, 0.35f, 0.005f, 4f, 4f), tone(0.5f, 466f, 116f, 0.3f, 0.005f, 4f, 4f)))
     }
 
@@ -237,6 +249,94 @@ object Synth {
             tone(0.09f, f, f * 1.55f, 0.42f, 0.002f, 30f, 0f),
             tone(0.07f, f * 2f, f * 3f, 0.1f, 0.002f, 40f, 0f),
             offset(bell(f * 2.5f, 0.12f, 0.06f), 0.01f, 0.13f),
+        )
+    }
+
+    /** A springy cartoon boing: a quick upward bend with a wobble. */
+    private fun boing(v: Int): FloatArray {
+        val dur = 0.16f
+        val n = (dur * RATE).toInt()
+        val d = FloatArray(n)
+        var phase = 0.0
+        val base = 330f + v * 30f
+        for (i in 0 until n) {
+            val t = i / RATE.toFloat()
+            val k = t / dur
+            val f = base * (1f + 0.9f * sqrt(k)) + sin(t * 2f * PI.toFloat() * 24f) * 45f * k
+            phase += 2 * PI * f / RATE
+            d[i] = sin(phase).toFloat() * min(1f, t / 0.003f) * exp(-t * 16f) * 0.5f
+        }
+        return d
+    }
+
+    /** "Wah wah wah waaah": the sad trombone, three falling notes and a long wobbly one. */
+    private fun womp(): FloatArray {
+        val total = 1.5f
+        return mix(
+            offset(voice(0.24f, 311f, 305f, 0.8f), 0f, total),
+            offset(voice(0.24f, 293.7f, 288f, 0.8f), 0.27f, total),
+            offset(voice(0.24f, 277.2f, 272f, 0.8f), 0.54f, total),
+            offset(wobble(0.75f, 261.6f, 246f, 0.85f), 0.81f, total),
+        )
+    }
+
+    /** A voice-like note with a slow, wide wobble (the last note of the sad trombone). */
+    private fun wobble(dur: Float, f0: Float, f1: Float, gain: Float): FloatArray {
+        val n = (dur * RATE).toInt()
+        val d = FloatArray(n)
+        val amps = floatArrayOf(1f, 0.75f, 0.5f, 0.22f, 0.12f)
+        var phase = 0.0
+        for (i in 0 until n) {
+            val t = i / RATE.toFloat()
+            val f = lerp(f0, f1, t / dur) * (1f + sin(t * 2f * PI.toFloat() * 5.5f) * 0.03f * min(1f, t / 0.2f))
+            phase += 2 * PI * f / RATE
+            var s = 0f
+            for (h in amps.indices) s += sin(phase * (h + 1)).toFloat() * amps[h]
+            val env = min(1f, t / 0.03f) * min(1f, (dur - t) / 0.25f).coerceAtLeast(0f)
+            d[i] = s * env * gain * 0.3f
+        }
+        return d
+    }
+
+    /** A slide whistle falling: "wheeeoooo", for a piece tumbling back home. */
+    private fun slideWhistle(): FloatArray {
+        val dur = 0.7f
+        val n = (dur * RATE).toInt()
+        val d = FloatArray(n)
+        var phase = 0.0
+        val rng = Random(71)
+        var lp = 0f
+        for (i in 0 until n) {
+            val t = i / RATE.toFloat()
+            val k = t / dur
+            val f = 1900f * (1f - k) + 380f * k + sin(t * 2f * PI.toFloat() * 7f) * 18f
+            phase += 2 * PI * f / RATE
+            lp += ((rng.nextDouble() * 2 - 1).toFloat() - lp) * 0.2f
+            val env = min(1f, t / 0.03f) * min(1f, (dur - t) / 0.12f).coerceAtLeast(0f)
+            d[i] = (sin(phase).toFloat() * 0.45f + sin(phase * 2).toFloat() * 0.05f + lp * 0.04f) * env
+        }
+        return d
+    }
+
+    /** A cartoon bonk on the head: a hollow knock, then a dizzy little falling boing. */
+    private fun bonk(): FloatArray {
+        val total = 0.8f
+        return mix(
+            offset(tone(0.25f, 520f, 470f, 0.6f, 0.001f, 18f, 0f), 0f, total),
+            offset(tone(0.2f, 1310f, 1250f, 0.2f, 0.001f, 26f, 0f), 0f, total),
+            offset(click(0.03f, 0.6f, 4000f, 77), 0f, total),
+            offset(tone(0.45f, 700f, 260f, 0.28f, 0.01f, 5f, 8f), 0.16f, total),
+        )
+    }
+
+    /** A soft tabla "na": a ringing high drum tone with its bell-like overtone and a tiny slap. */
+    private fun tabla(v: Int): FloatArray {
+        val f = 350f + v * 18f
+        return mix(
+            tone(0.2f, f * 1.02f, f, 0.5f, 0.001f, 20f, 0f),
+            tone(0.14f, f * 2.75f, f * 2.7f, 0.16f, 0.001f, 32f, 0f),
+            tone(0.09f, f * 4.1f, f * 4f, 0.06f, 0.001f, 45f, 0f),
+            click(0.02f, 0.22f, 3500f, 600 + v),
         )
     }
 
