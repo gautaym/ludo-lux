@@ -31,7 +31,8 @@ fun Stage.emit(
     rot: Float = rng.nextFloat() * 360f, spin: Float = 0f, gravity: Float = 0f, drag: Float = 0f, endSize: Float = size, tag: Int = 0,
 ) {
     if (particles.size > 1400) return
-    particles += Particle(kind, p.x, p.y, z, vx, vy, vz, color, size, life, rot, spin, gravity, drag, endSize, tag)
+    val k = fxScale
+    particles += Particle(kind, p.x, p.y, z, vx * k, vy * k, vz * k, color, size * k, life * tempo, rot, spin, gravity, drag, endSize * k, tag)
 }
 
 /** Particles flying out in all directions. */
@@ -45,15 +46,15 @@ fun Stage.burst(kind: PK, p: G, z: Float, n: Int, speed: Float, up: Float, size:
 }
 
 fun Stage.ring(p: G, r0: Float, r1: Float, life: Float, color: Color, alpha: Float = 1f, delay: Float = 0f, width: Float = 0.12f) {
-    decals += Decal(DK.Ring, p, life + delay, color, r0, r1, alpha, width, delay = delay)
+    decals += Decal(DK.Ring, p, (life + delay) * tempo, color, r0 * fxScale, r1 * fxScale, alpha, width * fxScale, delay = delay * tempo)
 }
 
 fun Stage.flash(p: G, radius: Float, life: Float, color: Color, alpha: Float = 1f, z: Float = 0f) {
-    decals += Decal(DK.Flash, p, life, color, radius * 0.3f, radius, alpha, z = z)
+    decals += Decal(DK.Flash, p, life * tempo, color, radius * 0.3f * fxScale, radius * fxScale, alpha, z = z)
 }
 
 fun Stage.decal(kind: DK, p: G, r0: Float, r1: Float, life: Float, color: Color, alpha: Float = 1f, spin: Float = 0f, delay: Float = 0f) {
-    decals += Decal(kind, p, life + delay, color, r0, r1, alpha, spin = spin, delay = delay)
+    decals += Decal(kind, p, (life + delay) * tempo, color, r0 * fxScale, r1 * fxScale, alpha, spin = spin, delay = delay * tempo)
 }
 
 fun Stage.shards(p: G, color: Color, n: Int, speed: Float, size: Float) {
@@ -83,9 +84,9 @@ fun Stage.release(well: G, color: Color) {
     val light = color.lighten(0.45f)
     ring(well, 0.1f, 1.3f, 0.35f, light, 0.9f)
     ring(well, 0.05f, 0.8f, 0.25f, Color.White, 0.6f, 0.04f)
-    repeat(count(16)) {
+    repeat(count(22)) {
         val a = rng.nextFloat() * TAU
-        val s = rnd(0.6f, 1.8f)
+        val s = rnd(0.6f, 1.9f)
         emit(PK.Sparkle, well, 0.2f, cos(a) * s, sin(a) * s, rnd(2f, 4f), light.lighten(rng.nextFloat() * 0.5f), rnd(0.2f, 0.4f), rnd(0.5f, 0.8f), gravity = 4f)
     }
 }
@@ -93,7 +94,7 @@ fun Stage.release(well: G, color: Color) {
 /** Turning into the home lane: a little gate of light in the seat colour. */
 fun Stage.laneEntry(p: G, color: Color) {
     ring(p, 0.2f, 1.0f, 0.35f, color.lighten(0.4f), 0.8f)
-    burst(PK.Sparkle, p, 0.3f, 8, 1.2f, 1.6f, 0.22f, 0.5f, color.lighten(0.5f))
+    burst(PK.Sparkle, p, 0.3f, 12, 1.3f, 1.8f, 0.24f, 0.55f, color.lighten(0.5f))
 }
 
 /** Landing on a safe square: a soft shield bubble wobbles round the piece. */
@@ -107,21 +108,25 @@ fun Stage.shieldBubble(piece: PieceSprite, color: Color) {
 fun Stage.cheer(piece: PieceSprite, color: Color) {
     piece.joy = 1f
     piece.impulse(9f)
-    repeat(count(10)) {
+    repeat(count(14)) {
         val a = rng.nextFloat() * TAU
         emit(PK.Sparkle, piece.pos, 1.0f, cos(a) * 1.2f, sin(a) * 1.2f, rnd(1f, 2.2f), color.lighten(0.5f), rnd(0.2f, 0.32f), 0.6f, gravity = 3f)
     }
 }
 
 fun Stage.lightPillar(p: G, color: Color, life: Float = 0.7f) {
-    decals += Decal(DK.Pillar, p, life, color.lighten(0.35f), 0.35f, 0.55f, 0.85f)
+    decals += Decal(DK.Pillar, p, life * tempo, color.lighten(0.35f), 0.35f * fxScale, 0.55f * fxScale, 0.85f)
 }
 
 fun Stage.homeCelebration(p: G, color: Color) {
+    flash(p, 1.8f, 0.25f, color.lighten(0.6f), 0.8f)
     ring(p, 0.1f, 1.6f, 0.45f, color.lighten(0.4f), 0.9f)
     ring(p, 0.1f, 1.0f, 0.35f, Gold, 0.8f, 0.06f)
-    burst(PK.Sparkle, p, 0.4f, 18, 2.2f, 3f, 0.3f, 0.8f, color.lighten(0.5f), gravity = 4f)
-    app.sfx(SfxId.HomeEnter, 0.8f)
+    ring(p, 0.1f, 2.2f, 0.55f, Color.White, 0.5f, 0.14f)
+    burst(PK.Sparkle, p, 0.4f, 26, 2.4f, 3.2f, 0.3f, 0.85f, color.lighten(0.5f), gravity = 4f)
+    burst(PK.Sparkle, p, 0.6f, 10, 1.6f, 3.6f, 0.36f, 0.9f, Gold, gravity = 4f)
+    confetti(p, listOf(color, color.lighten(0.5f), Gold, Color.White), 34, 2.6f, 5.2f)
+    app.sfx(SfxId.HomeEnter, 0.85f)
 }
 
 /** Rockets that climb from [p] and burst in the palette's colours. */
@@ -163,7 +168,7 @@ fun Stage.bolt(a: G, za: Float, b: G, zb: Float, width: Float, color: Color, jag
         val p = lerp(a, b, k) + nrm * off
         pts[i * 3] = p.x; pts[i * 3 + 1] = p.y; pts[i * 3 + 2] = mix(za, zb, k) + rnd(-jag, jag) * 0.4f * sin(k * PI.toFloat())
     }
-    decals += Decal(DK.Bolt, a, life, color, width = width, data = pts, r1 = branches.toFloat())
+    decals += Decal(DK.Bolt, a, life * tempo, color, width = width * fxScale, data = pts, r1 = branches.toFloat())
 }
 
 /** Small electric arcs crawling round [p]. */

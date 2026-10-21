@@ -202,6 +202,15 @@ fun main(args: Array<String>) {
         val guest = TestPlatform().also { it.prefs.putString("token", "t"); it.prefs.putString("onlineName", "Mom"); it.prefs.putInt("onlineTag", 4821) }
         record("signin_guest", 3f, 1f, listOf(2.9f)) { LuxApp(AppContext(guest).also { it.net.changeServer("http://127.0.0.1:9") }, Nav().apply { screen = Screen.Family }) }
     }
+    if ("audio" in want) {
+        // The synthesised sounds as WAV files, to listen to (and to time the menu tune).
+        val dir = java.io.File("shots/audio").apply { mkdirs() }
+        val t0 = System.nanoTime()
+        java.io.File(dir, "music.wav").writeBytes(lux.audio.Synth.music())
+        println("music built in ${(System.nanoTime() - t0) / 1_000_000} ms")
+        for (id in listOf(lux.audio.SfxId.Pip, lux.audio.SfxId.Caught, lux.audio.SfxId.HomeEnter, lux.audio.SfxId.Hop))
+            lux.audio.Synth.build(id).forEachIndexed { i, w -> java.io.File(dir, "${id.name}_$i.wav").writeBytes(w) }
+    }
     if ("snakes" in want) {
         // The menu with Snake & Ladders chosen, then a whole 4-player game played by the computer.
         val menuApp = AppContext(SilentPlatform).also { it.settings.game = lux.app.Settings.GAME_SNAKES }
@@ -220,6 +229,6 @@ fun main(args: Array<String>) {
     if ("showcase" in want) {
         val app = AppContext(SilentPlatform)
         val nav = Nav().apply { screen = Screen.Showcase }
-        record("showcase", 75f, 0.1f, w = 540, h = 1170, density = 1.375f) { LuxApp(app, nav) }
+        record("showcase", 95f, 0.2f, w = 540, h = 1170, density = 1.375f) { LuxApp(app, nav) }
     }
 }

@@ -48,7 +48,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
+        platform.pauseMusic()
         nav.onBackground?.invoke()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        platform.resumeMusic()
     }
 
     override fun onDestroy() {
@@ -240,5 +246,48 @@ class AndroidPlatform(context: Context, private val activity: android.app.Activi
         }
     }
 
-    fun release() = pool.release()
+    // ---------------------------------------------------------------- menu music
+
+    private val appContext = context.applicationContext
+    private var player: android.media.MediaPlayer? = null
+    @Volatile private var musicWanted = false
+    private val musicLock = Any()
+
+    override fun music(on: Boolean) {
+        musicWanted = on
+        if (on) startMusic() else player?.let { if (it.isPlaying) it.pause() }
+    }
+
+    /** The app went to the background: the tune stops, and comes back with the app if it was playing. */
+    fun pauseMusic() { player?.let { if (it.isPlaying) it.pause() } }
+    fun resumeMusic() { if (musicWanted) startMusic() }
+
+    private fun startMusic() {
+        thread(name = "music") {
+            // Synthesised once (a second or so), then kept in the cache.
+            val f = File(appContext.cacheDir, "music_v1.wav")
+            synchronized(musicLock) {
+                if (!f.exists()) {
+                    val tmp = File(appContext.cacheDir, "music_v1.tmp")
+                    tmp.writeBytes(Synth.music())
+                    tmp.renameTo(f)
+                }
+            }
+            activity.runOnUiThread {
+                if (!musicWanted || activity.isFinishing) return@runOnUiThread
+                val p = player ?: runCatching {
+                    android.media.MediaPlayer().apply {
+                        setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_GAME).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                        setDataSource(f.path)
+                        isLooping = true
+                        prepare()
+                        setVolume(0.32f, 0.32f)
+                    }
+                }.getOrNull()?.also { player = it } ?: return@runOnUiThread
+                if (!p.isPlaying) p.start()
+            }
+        }
+    }
+
+    fun release() { pool.release(); player?.release(); player = null }
 }

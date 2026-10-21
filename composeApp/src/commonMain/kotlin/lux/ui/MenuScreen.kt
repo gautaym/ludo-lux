@@ -336,6 +336,7 @@ fun SettingsOverlay(onClose: () -> Unit) {
                     RoundIcon(onClose, size = 44.dp) { closeIcon(it) }
                 }
                 ToggleRow("Sound", null, s.sound) { s.sound = it }
+                ToggleRow("Music", "A happy tune on this screen", s.music) { s.music = it }
                 ToggleRow("Vibration", null, s.haptics) { s.haptics = it }
                 ToggleRow("Balanced dice", "Sixes come in time; nobody stays stuck", s.balancedDice) { s.balancedDice = it }
                 ToggleRow("Lucky six", "After 4 tries with all pieces home, a six", s.luckySix) { s.luckySix = it }

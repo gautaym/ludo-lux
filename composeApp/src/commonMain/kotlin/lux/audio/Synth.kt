@@ -5,6 +5,7 @@ import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.random.Random
 
@@ -13,6 +14,10 @@ enum class SfxId {
     BoomCapture, ConfettiCapture, MagicCapture, ThunderCapture, VictimReturn,
     HomeEnter, Victory, TurnPing, NoMove, Penalty,
     SwordDraw, SwordSlash, Kick, Whoosh, Firework, Riser,
+    /** A cute little "pip" for every square a piece hops. */
+    Pip,
+    /** "Uh-oh": a piece has been caught. */
+    Caught,
 }
 
 /**
@@ -50,18 +55,20 @@ object Synth {
         SfxId.Whoosh -> (0 until 2).map { whoosh(0.32f + it * 0.08f, 60 + it) }
         SfxId.Firework -> (0 until 3).map { firework(70 + it) }
         SfxId.Riser -> listOf(mix(offset(noise(0.9f, 0.4f, 2500f, 0.2f, 95, 0.7f), 0f, 1.3f), offset(tone(0.9f, 220f, 880f, 0.22f, 0.6f, 0.3f, 4f), 0f, 1.3f), offset(bell(1046.5f, 0.6f, 0.3f), 0.85f, 1.3f), offset(bell(1568f, 0.6f, 0.2f), 0.85f, 1.3f)))
+        SfxId.Pip -> (0 until 3).map { pip(it) }
+        SfxId.Caught -> listOf(uhOh())
         SfxId.Penalty -> listOf(mix(tone(0.5f, 440f, 110f, 0.35f, 0.005f, 4f, 4f), tone(0.5f, 466f, 116f, 0.3f, 0.005f, 4f, 4f)))
     }
 
     /** Normalise gently and apply a hard safety fade so nothing clicks at the end. */
-    private fun finish(d: FloatArray): FloatArray {
+    private fun finish(d: FloatArray, fadeEnd: Boolean = true): FloatArray {
         var peak = 0f
         for (v in d) peak = max(peak, abs(v))
         val g = if (peak > 0.9f) 0.9f / peak else 1f
         val fade = min(d.size / 8, 200)
         for (i in d.indices) {
             d[i] *= g
-            if (i > d.size - fade) d[i] *= (d.size - i) / fade.toFloat()
+            if (fadeEnd && i > d.size - fade) d[i] *= (d.size - i) / fade.toFloat()
         }
         return d
     }
@@ -221,6 +228,109 @@ object Synth {
         val rng = Random(5)
         for (i in 0 until 9) parts += offset(bell(1800f + rng.nextFloat() * 2600f, 0.35f, 0.1f), 0.2f + i * 0.09f, total)
         return mix(*parts.toTypedArray())
+    }
+
+    /** A soft, bubbly upward blip (a cartoon footstep), with a tiny bell on top. Pitch rises a little each square. */
+    private fun pip(v: Int): FloatArray {
+        val f = 820f + v * 45f
+        return mix(
+            tone(0.09f, f, f * 1.55f, 0.42f, 0.002f, 30f, 0f),
+            tone(0.07f, f * 2f, f * 3f, 0.1f, 0.002f, 40f, 0f),
+            offset(bell(f * 2.5f, 0.12f, 0.06f), 0.01f, 0.13f),
+        )
+    }
+
+    /** A sung-sounding note: a few harmonics with a vowel-ish weighting, gliding from [f0] to [f1]. */
+    private fun voice(dur: Float, f0: Float, f1: Float, gain: Float): FloatArray {
+        val n = (dur * RATE).toInt()
+        val d = FloatArray(n)
+        val amps = floatArrayOf(1f, 0.75f, 0.5f, 0.22f, 0.12f, 0.06f)
+        var phase = 0.0
+        for (i in 0 until n) {
+            val t = i / RATE.toFloat()
+            val k = t / dur
+            val f = lerp(f0, f1, k * k) * (1f + sin(t * 32f) * 0.01f)
+            phase += 2 * PI * f / RATE
+            var s = 0f
+            for (h in amps.indices) s += sin(phase * (h + 1)).toFloat() * amps[h]
+            val env = min(1f, t / 0.025f) * min(1f, (dur - t) / 0.06f).coerceAtLeast(0f)
+            d[i] = s * env * gain * 0.3f
+        }
+        return d
+    }
+
+    /** "Uh-oh!": two falling notes, then a little sad "womp" bend. */
+    private fun uhOh(): FloatArray {
+        val total = 0.9f
+        return mix(
+            offset(voice(0.17f, 587.3f, 600f, 0.9f), 0f, total),
+            offset(voice(0.42f, 440f, 380f, 0.9f), 0.21f, total),
+            offset(tone(0.35f, 180f, 120f, 0.25f, 0.02f, 5f, 0f), 0.22f, total),
+        )
+    }
+
+    /**
+     * The menu tune: a cheerful, gentle loop (C - G - Am - F, twice) of bell melody, soft chords, a plucked bass and a
+     * light shaker. Built so its end runs straight into its start, for endless looping. About 18 s, mono.
+     */
+    fun music(): ByteArray {
+        val bpm = 108f
+        val beat = 60f / bpm
+        val bars = 8
+        val len = (bars * 4 * beat * RATE).toInt()
+        val out = FloatArray(len)
+        fun put(sound: FloatArray, at: Float, gain: Float = 1f) {
+            val o = (at * RATE).toInt()
+            for (i in sound.indices) out[(o + i) % len] += sound[i] * gain
+        }
+        fun midi(m: Int) = 440f * 2f.pow((m - 69) / 12f)
+        // Chords (MIDI) and roots, one per bar.
+        val chords = listOf(intArrayOf(60, 64, 67), intArrayOf(55, 59, 62), intArrayOf(57, 60, 64), intArrayOf(53, 57, 60))
+        val roots = intArrayOf(36, 43, 45, 41)
+        // Melody: (bar, beat in bar, MIDI note).
+        val tune = listOf(
+            0 to 0f to 76, 0 to 1f to 79, 0 to 1.5f to 81, 0 to 2f to 79, 0 to 3f to 76,
+            1 to 0f to 74, 1 to 1f to 76, 1 to 1.5f to 74, 1 to 2f to 71, 1 to 3f to 67,
+            2 to 0f to 72, 2 to 1f to 76, 2 to 1.5f to 81, 2 to 2f to 79, 2 to 3f to 76,
+            3 to 0f to 77, 3 to 1f to 76, 3 to 2f to 74, 3 to 3f to 72,
+            4 to 0f to 76, 4 to 0.5f to 79, 4 to 1f to 84, 4 to 2f to 79, 4 to 3f to 81,
+            5 to 0f to 79, 5 to 1f to 74, 5 to 1.5f to 76, 5 to 2f to 74, 5 to 3f to 71,
+            6 to 0f to 72, 6 to 0.5f to 76, 6 to 1f to 81, 6 to 2f to 84, 6 to 3f to 83,
+            7 to 0f to 81, 7 to 1f to 79, 7 to 2f to 77, 7 to 2.5f to 76, 7 to 3f to 74, 7 to 3.5f to 67,
+        )
+        for ((bb, note) in tune) {
+            val (bar, b) = bb
+            val f = midi(note)
+            val at = (bar * 4 + b) * beat
+            put(bell(f, 0.7f, 0.3f), at)
+            put(tone(0.35f, f, f, 0.1f, 0.004f, 7f, 0f), at)
+        }
+        for (bar in 0 until bars) {
+            val ch = chords[bar % 4]
+            val start = bar * 4 * beat
+            // Soft chord pad, swelling in over the bar.
+            for (m in ch) put(pad(midi(m), 4 * beat + 0.3f, 0.055f), start)
+            // Plucked bass on beats 1 and 3, a passing fifth on the "and" of 4.
+            put(tone(0.45f, midi(roots[bar % 4]), midi(roots[bar % 4]), 0.4f, 0.004f, 6f, 0f), start)
+            put(tone(0.45f, midi(roots[bar % 4]), midi(roots[bar % 4]), 0.32f, 0.004f, 6f, 0f), start + 2 * beat)
+            put(tone(0.25f, midi(roots[bar % 4] + 7), midi(roots[bar % 4] + 7), 0.22f, 0.004f, 9f, 0f), start + 3.5f * beat)
+            // Light kick on 1 and 3, shaker on the off-beats.
+            for (k in listOf(0f, 2f)) put(tone(0.16f, 120f, 50f, 0.35f, 0.001f, 18f, 0f), start + k * beat)
+            for (k in 0 until 4) put(noise(0.06f, 0.07f, 9000f, 40f, 500 + bar * 4 + k), start + (k + 0.5f) * beat)
+        }
+        return wav(finish(out, fadeEnd = false))
+    }
+
+    /** A warm sustained chord note: a sine and a slightly detuned one, slow in, slow out. */
+    private fun pad(freq: Float, dur: Float, gain: Float): FloatArray {
+        val n = (dur * RATE).toInt()
+        val d = FloatArray(n)
+        for (i in 0 until n) {
+            val t = i / RATE.toFloat()
+            val env = min(1f, t / 0.5f) * min(1f, (dur - t) / 0.4f).coerceAtLeast(0f)
+            d[i] = (sin(2 * PI.toFloat() * freq * t) + 0.6f * sin(2 * PI.toFloat() * freq * 1.004f * t) + 0.2f * sin(4 * PI.toFloat() * freq * t)) * env * gain
+        }
+        return d
     }
 
     /** Band-passed noise sweeping in brightness: the air rushing past a fast object. */

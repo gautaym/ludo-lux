@@ -485,7 +485,7 @@ class MatchDirector(val stage: Stage) {
                     rankVersion++
                     giveAward(e.seat, e.value)
                     allHome(e.seat, e.value == 1)
-                    showcaseSeconds += ALL_HOME_SECONDS - 0.8f
+                    showcaseSeconds += ALL_HOME_SECONDS * HOME_TEMPO - 0.8f
                 }
                 EventType.MatchEnded -> {
                     rankVersion++
@@ -537,7 +537,7 @@ class MatchDirector(val stage: Stage) {
                     showcaseSeconds += 0.5f - HOP_LAST
                 } else {
                     val safe = last && Board.isOnTrack(p) && Board.isSafeSquare(Board.globalIndex(color, p))
-                    app.sfx(SfxId.Hop, 0.55f, 0.95f + (p - e.from) * 0.03f)
+                    app.sfx(SfxId.Pip, 0.6f, 0.95f + (p - e.from) * 0.035f)
                     stage.hop(pc, to, if (last) HOP_LAST else HOP_STEP, if (last) HOP_LAST_HEIGHT else HOP_HEIGHT, {
                         if (last) {
                             stage.landingDust(to, col)
@@ -550,17 +550,22 @@ class MatchDirector(val stage: Stage) {
             if (reachedHome) {
                 finishedCount[e.seat]++
                 val spot = Geo.finishSpot(color, finishSlot)
-                stage.homeCelebration(spot, col)
-                stage.lightPillar(spot, col)
-                if (oneToGo) {
-                    say("3 home! One to go!", col)
-                    stage.fireworks(spot, listOf(col, Gold), 2, 1.5f)
-                    stage.wait(0.65f)
-                    stage.unfocus()
-                    showcaseSeconds += 0.35f
-                } else {
-                    say("Home!", col, 0.8f)
-                    stage.wait(0.3f)
+                // Coming home: half as long again, and bigger, than it used to be (the walk there stays brisk).
+                stage.celebrate(HOME_TEMPO, HOME_FX) {
+                    stage.homeCelebration(spot, col)
+                    stage.lightPillar(spot, col)
+                    pc.joy = 1f
+                    if (oneToGo) {
+                        say("3 home! One to go!", col)
+                        stage.fireworks(spot, listOf(col, Gold, Color.White), 3, 1.6f)
+                        stage.wait(0.65f)
+                        stage.unfocus()
+                        showcaseSeconds += 0.35f * HOME_TEMPO
+                    } else {
+                        say("Home!", col, 1.0f)
+                        stage.fireworks(spot, listOf(col, Gold), 1, 1.0f)
+                        stage.wait(0.3f)
+                    }
                 }
             }
         }
@@ -604,7 +609,9 @@ class MatchDirector(val stage: Stage) {
      * The big one: all four pieces home. They rise out of the centre, circle it under spinning light rays while
      * fireworks go off in waves, then settle back. The one place a match deliberately slows down (~3 s).
      */
-    private suspend fun allHome(seat: Int, winner: Boolean) {
+    private suspend fun allHome(seat: Int, winner: Boolean) = stage.celebrate(HOME_TEMPO, ALL_HOME_FX) { allHomeScene(seat, winner) }
+
+    private suspend fun allHomeScene(seat: Int, winner: Boolean) {
         val pcs = sprites[seat]
         val c = style.seat[seats[seat].color]
         val centre = G.Centre
@@ -635,13 +642,15 @@ class MatchDirector(val stage: Stage) {
         pcs.forEach { it.trail = true; it.flash = 0.8f }
         var wave = 0
         var t = 0f
-        while (t < orbit) {
-            val turn = smooth(t / orbit) * 1.25f
+        // The orbit is a hand-run loop, so it stretches itself with the celebration's tempo.
+        val orbitLen = orbit * stage.tempo
+        while (t < orbitLen) {
+            val turn = smooth(t / orbitLen) * 1.25f
             for (i in 0 until 4) {
                 pcs[i].pos = ringAt(i, turn)
                 pcs[i].z = height + sin(t * 9f + i * 1.57f) * 0.18f
             }
-            if (wave < 3 && t >= wave * 0.55f) { stage.fireworks(centre, pal, if (winner) 4 else 3, 3.2f); wave++ }
+            if (wave < 4 && t >= wave * 0.55f * stage.tempo) { stage.fireworks(centre, pal, if (winner) 4 else 3, 3.2f); wave++ }
             if (stage.chance(0.5f)) stage.emit(PK.Sparkle, ringAt(stage.rng.nextInt(4), turn), height, 0f, 0f, -0.5f, c.lighten(0.5f), 0.3f, 0.6f)
             t += stage.frame()
         }
@@ -740,7 +749,7 @@ class MatchDirector(val stage: Stage) {
                 val last = p == to
                 val at = Geo.piece(color, piece, p)
                 if (p == Board.HOME_LANE_START) st.laneEntry(at, style.seat[color])
-                app.sfx(SfxId.Hop, 0.55f, 0.95f + (p - from) * 0.03f)
+                app.sfx(SfxId.Pip, 0.6f, 0.95f + (p - from) * 0.035f)
                 st.hop(pc, at, if (last) HOP_LAST else HOP_STEP, if (last) HOP_LAST_HEIGHT else HOP_HEIGHT, {
                     if (last) { st.landingDust(at, style.seat[color]); app.sfx(SfxId.Land, 0.7f); onLast?.invoke(at) }
                 }, anticipate = p == from + 1)
@@ -825,6 +834,10 @@ class MatchDirector(val stage: Stage) {
 
     companion object {
         const val ALL_HOME_SECONDS = 3.1f
+        /** Home celebrations run this much longer than the rest of the game (bigger by [HOME_FX] / [ALL_HOME_FX]). */
+        const val HOME_TEMPO = 1.5f
+        const val HOME_FX = 1.4f
+        const val ALL_HOME_FX = 1.3f
         /** Size of a finished piece in the centre triangle (pieces are drawn larger now, so these shrink more). */
         const val FINISHED_SCALE = 0.66f
         /** Seconds per square while moving, and for the final square. */

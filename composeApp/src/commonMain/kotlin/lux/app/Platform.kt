@@ -23,6 +23,8 @@ enum class Haptic { Light, Medium, Heavy }
 interface Platform {
     val prefs: Prefs
     fun play(id: SfxId, volume: Float = 1f, pitch: Float = 1f)
+    /** Starts (looping, quietly) or stops the menu tune ([lux.audio.Synth.music]). */
+    fun music(on: Boolean) {}
     fun vibrate(strength: Haptic)
     /** Shares text (WhatsApp first if it is installed, otherwise the system share sheet). */
     fun share(text: String) {}
@@ -70,6 +72,7 @@ class Settings(private val prefs: Prefs) {
     private fun bool(key: String, default: Boolean) = mutableStateOf(prefs.getInt(key, if (default) 1 else 0) == 1)
 
     private val _sound = bool("sound", true)
+    private val _music = bool("music", true)
     private val _haptics = bool("haptics", true)
     private val _reducedMotion = bool("reducedMotion", false)
     private val _balancedDice = bool("balancedDice", true)
@@ -90,6 +93,10 @@ class Settings(private val prefs: Prefs) {
     var sound: Boolean
         get() = _sound.value
         set(v) { _sound.value = v; prefs.putInt("sound", if (v) 1 else 0) }
+    /** The cheerful tune on the menu (never during a game). */
+    var music: Boolean
+        get() = _music.value
+        set(v) { _music.value = v; prefs.putInt("music", if (v) 1 else 0) }
     var haptics: Boolean
         get() = _haptics.value
         set(v) { _haptics.value = v; prefs.putInt("haptics", if (v) 1 else 0) }

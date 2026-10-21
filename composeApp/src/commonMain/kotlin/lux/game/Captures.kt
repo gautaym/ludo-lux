@@ -35,17 +35,41 @@ suspend fun Stage.playCapture(style: CaptureStyle, c: CaptureContext) {
     spotAt = c.impact
     spotTarget = 0.42f
     focus(c.impact, 0.07f)
-    when (style) {
-        CaptureStyle.Boom -> boomCapture(c)
-        CaptureStyle.Confetti -> confettiCapture(c)
-        CaptureStyle.Smoke -> smokeCapture(c)
-        CaptureStyle.Zap -> zapCapture(c)
-        CaptureStyle.Sword -> swordCapture(c)
-        CaptureStyle.Kick -> kickCapture(c)
-        CaptureStyle.Rewind -> rewindCapture(c)
+    // A quarter more time and a quarter more of everything: the big moment of a Ludo game.
+    celebrate(CAPTURE_TEMPO, CAPTURE_FX) {
+        when (style) {
+            CaptureStyle.Boom -> boomCapture(c)
+            CaptureStyle.Confetti -> confettiCapture(c)
+            CaptureStyle.Smoke -> smokeCapture(c)
+            CaptureStyle.Zap -> zapCapture(c)
+            CaptureStyle.Sword -> swordCapture(c)
+            CaptureStyle.Kick -> kickCapture(c)
+            CaptureStyle.Rewind -> rewindCapture(c)
+        }
+        gotcha(c)
     }
     spotTarget = 0f
     unfocus()
+}
+
+const val CAPTURE_TEMPO = 1.25f
+const val CAPTURE_FX = 1.25f
+
+/** The moment of the catch: an "uh-oh" so everyone hears a piece was caught. */
+private fun Stage.caught() = app.sfx(SfxId.Caught, 0.9f)
+
+/** The catcher's little victory dance on the square: a jump of joy in a shower of its own colour. */
+private suspend fun Stage.gotcha(c: CaptureContext) {
+    val a = c.attacker
+    a.joy = 1f
+    a.impulse(10f)
+    ring(a.pos, 0.15f, 1.3f, 0.4f, c.attackerColor.lighten(0.4f), 0.85f)
+    repeat(count(14)) {
+        val ang = rng.nextFloat() * TAU
+        emit(PK.Sparkle, a.pos, 1.0f, cos(ang) * 1.4f, sin(ang) * 1.4f, rnd(1.2f, 2.6f), lerp(c.attackerColor.lighten(0.5f), Gold, rng.nextFloat() * 0.5f), rnd(0.22f, 0.34f), 0.65f, gravity = 3f)
+    }
+    app.sfx(SfxId.Entered, 0.55f, 1.15f)
+    wait(0.22f)
 }
 
 /** Sends an extra victim of a multi-capture spinning home. */
@@ -97,7 +121,7 @@ private suspend fun Stage.boomCapture(c: CaptureContext) {
         }
         shake(0.26f, 0.5f)
         punch(2.4f)
-        hitStop(0.075f)
+        hitStop(0.075f); caught()
         app.sfx(SfxId.BoomCapture)
         app.haptic(Haptic.Heavy)
     })
@@ -137,6 +161,7 @@ private suspend fun Stage.confettiCapture(c: CaptureContext) {
         punch(1.6f)
         app.sfx(SfxId.ConfettiCapture)
         app.haptic(Haptic.Medium)
+        caught()
     })
     // The victim boings home across the board in three shrinking bounces, spinning, with dizzy stars.
     val v = c.victim
@@ -183,6 +208,7 @@ private suspend fun Stage.smokeCapture(c: CaptureContext) {
         ring(g, 0.15f, 1.9f, 0.55f, violet, 0.8f)
         burst(PK.Smoke, g, 0.1f, 6, 0.8f, 0.9f, 0.5f, 1.1f, Color(0.55f, 0.35f, 0.85f, 0.5f))
         punch(0.8f)
+        caught()
     })
     val v = c.victim
     v.busy = true
@@ -265,7 +291,7 @@ private suspend fun Stage.zapCapture(c: CaptureContext) {
     punch(2.8f)
     app.sfx(SfxId.ThunderCapture)
     app.haptic(Haptic.Heavy)
-    hitStop(0.06f)
+    hitStop(0.06f); caught()
     wait(0.07f)
     spotTarget = 0.45f
     // Electrocuted: three slow pulses (no more than 3 per second), arcs and smoke.
@@ -330,7 +356,7 @@ private suspend fun Stage.swordCapture(c: CaptureContext) {
             ring(g, 0.15f, 2.2f, 0.35f, Color.White, 0.8f)
             shake(0.18f, 0.35f)
             punch(2f)
-            hitStop(0.11f)
+            hitStop(0.11f); caught()
             app.haptic(Haptic.Heavy)
         }
     }
@@ -412,7 +438,7 @@ private suspend fun Stage.kickCapture(c: CaptureContext) {
     c.victim.impulse(-10f)
     shake(0.22f, 0.4f)
     punch(2.4f)
-    hitStop(0.09f)
+    hitStop(0.09f); caught()
     app.sfx(SfxId.Kick)
     app.haptic(Haptic.Heavy)
     // The attacker recovers and steps onto the square while the victim sails away.
@@ -468,7 +494,7 @@ private suspend fun Stage.rewindCapture(c: CaptureContext) {
         flash(g, 2.6f, 0.2f, tape.lighten(0.5f), 0.9f)
         ring(g, 0.15f, 2f, 0.4f, tape, 0.9f)
         punch(1.6f)
-        hitStop(0.06f)
+        hitStop(0.06f); caught()
         app.sfx(SfxId.Kick, 0.7f, 1.2f)
         app.haptic(Haptic.Medium)
     })

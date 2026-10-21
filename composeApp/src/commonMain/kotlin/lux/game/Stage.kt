@@ -58,18 +58,35 @@ class Stage(val app: AppContext, var style: BoardStyle) {
     suspend fun frame(): Float = suspendCancellableCoroutine { waiters += it }
 
     suspend fun wait(seconds: Float) {
+        val len = seconds * tempo
         var t = 0f
-        while (t < seconds) t += frame()
+        while (t < len) t += frame()
     }
 
     /** Runs [f] with progress 0..1 over [seconds] of game time; always ends with f(1). */
     suspend fun tween(seconds: Float, f: (Float) -> Unit) {
+        val len = seconds * tempo
         var t = 0f
-        while (t < seconds) {
-            f((t / seconds).coerceIn(0f, 1f))
+        while (t < len) {
+            f((t / len).coerceIn(0f, 1f))
             t += frame()
         }
         f(1f)
+    }
+
+    /**
+     * Celebration pacing. Inside [celebrate], every wait and tween runs [tempo] times longer and every effect (particle
+     * counts, sizes, speeds, rings, lifetimes) is [fxScale] times bigger, so a scene keeps its shape, just grander.
+     */
+    var tempo = 1f
+        private set
+    var fxScale = 1f
+        private set
+
+    suspend fun celebrate(tempo: Float, fx: Float, block: suspend () -> Unit) {
+        val t0 = this.tempo; val f0 = fxScale
+        this.tempo = t0 * tempo; fxScale = f0 * fx
+        try { block() } finally { this.tempo = t0; fxScale = f0 }
     }
 
     fun launch(block: suspend () -> Unit): Job = scope.launch { block() }
@@ -106,7 +123,7 @@ class Stage(val app: AppContext, var style: BoardStyle) {
 
     fun shake(amp: Float, seconds: Float) {
         if (app.settings.reducedMotion) return
-        shakeAmp = max(shakeAmp, amp); shakeLeft = seconds; shakeLen = seconds
+        shakeAmp = max(shakeAmp, amp * fxScale); shakeLeft = seconds * tempo; shakeLen = seconds * tempo
     }
 
     fun punch(strength: Float) { if (!app.settings.reducedMotion) punchVel += strength * 9f }
@@ -134,7 +151,7 @@ class Stage(val app: AppContext, var style: BoardStyle) {
 
     /** Particle multiplier: reduced motion tones effects down. */
     val effectScale get() = if (app.settings.reducedMotion) 0.4f else 1f
-    fun count(n: Int) = max(1, (n * effectScale).toInt())
+    fun count(n: Int) = max(1, (n * effectScale * fxScale).toInt())
 
     fun clear() {
         pieces.clear(); particles.clear(); decals.clear(); awards.clear(); targets.clear()

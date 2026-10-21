@@ -46,6 +46,9 @@ fun seatsFromSettings(app: AppContext): List<SeatConfig> {
 fun LuxApp(app: AppContext, nav: Nav) {
     // Ads for this area (pictures only), fetched quietly in the background; none when offline.
     LaunchedEffect(Unit) { app.ads.refresh() }
+    // The menu tune: only on the menu, only with sound and music on; it stops the moment a game starts.
+    val tune = nav.screen == Screen.Menu && app.settings.sound && app.settings.music
+    LaunchedEffect(tune) { app.platform.music(tune) }
     ProvideLux(app) {
         Box(Modifier.fillMaxSize().background(Color(0xFF06161B))) {
             AnimatedContent(nav.screen, transitionSpec = { fadeIn() togetherWith fadeOut() }) { screen ->
