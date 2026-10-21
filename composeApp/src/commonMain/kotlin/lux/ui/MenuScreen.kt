@@ -351,7 +351,10 @@ fun SettingsOverlay(onClose: () -> Unit) {
                 val scope = androidx.compose.runtime.rememberCoroutineScope()
                 SoundChoice("Hop sound", lux.app.AppContext.HOP_SOUNDS, s.hopSound) { v ->
                     s.hopSound = v
-                    scope.launch { for (i in 0 until 5) { app.hop(i); kotlinx.coroutines.delay(170) } }
+                    scope.launch {
+                        for (i in 0 until 6) { app.hop(i, 6, big = true); kotlinx.coroutines.delay(170) }
+                        kotlinx.coroutines.delay(60); app.arrive(6)
+                    }
                 }
                 SoundChoice("Caught sound", lux.app.AppContext.CAUGHT_SOUNDS, s.caughtSound) { v ->
                     s.caughtSound = v

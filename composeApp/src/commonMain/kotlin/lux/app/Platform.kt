@@ -1,6 +1,7 @@
 package lux.app
 
 import kotlin.math.pow
+import kotlin.math.roundToInt
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -211,16 +212,33 @@ class AppContext(val platform: Platform) {
 
     fun sfx(id: SfxId, volume: Float = 1f, pitch: Float = 1f) { if (settings.sound) platform.play(id, volume, pitch) }
 
-    /** The hop sound for the [step]th square of a move (0 = first), in the player's chosen style. */
-    fun hop(step: Int) {
+    /**
+     * The hop sound for square [step] (0 = first) of a walk of [total] squares, in the player's chosen style.
+     * The hops build excitement: each one a little higher and louder than the last, climbing further when the walk
+     * ends somewhere [big] (a capture, home, a ladder or a snake). "Notes" climbs the scale and lands on the top "do".
+     */
+    fun hop(step: Int, total: Int = 6, big: Boolean = false) {
+        val k = if (total <= 1) 1f else (step / (total - 1f)).coerceIn(0f, 1f)
+        val rise = if (big) 0.42f else 0.2f
+        val vol = 0.42f + (if (big) 0.38f else 0.18f) * k
+        val up = 1f + rise * k
         when (settings.hopSound) {
-            HOP_NOTES -> sfx(SfxId.HopNote, 0.55f, 2f.pow(SCALE[step % SCALE.size] / 12f))
-            HOP_BOING -> sfx(SfxId.HopBoing, 0.55f, 0.95f + step * 0.04f)
-            HOP_TABLA -> sfx(SfxId.HopTabla, 0.65f, 0.97f + step * 0.02f)
-            HOP_WOOD -> sfx(SfxId.Hop, 0.55f, 0.95f + step * 0.03f)
+            HOP_NOTES -> {
+                val idx = if (total <= 1) SCALE.lastIndex else (k * SCALE.lastIndex).roundToInt()
+                sfx(SfxId.HopNote, vol + 0.05f, 2f.pow(SCALE[idx] / 12f))
+            }
+            HOP_BOING -> sfx(SfxId.HopBoing, vol, 0.92f * up)
+            HOP_TABLA -> sfx(SfxId.HopTabla, vol + 0.1f, 0.95f * (1f + rise * 0.6f * k))
+            HOP_WOOD -> sfx(SfxId.Hop, vol, 0.92f * (1f + rise * 0.7f * k))
             HOP_OFF -> {}
-            else -> sfx(SfxId.Pip, 0.6f, 0.95f + step * 0.035f)
+            else -> sfx(SfxId.Pip, vol + 0.05f, 0.92f * up)
         }
+    }
+
+    /** The landing at the end of a walk of [total] squares: long walks finish with a little "ta-da". */
+    fun arrive(total: Int) {
+        if (settings.hopSound == HOP_OFF || total < 4) return
+        sfx(SfxId.Arrive, 0.2f + 0.05f * total)
     }
 
     /** The "a piece was caught" sound, in the player's chosen style. */

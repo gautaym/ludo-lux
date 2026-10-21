@@ -552,12 +552,18 @@ class MatchDirector(val stage: Stage) {
                     showcaseSeconds += 0.5f - HOP_LAST
                 } else {
                     val safe = last && Board.isOnTrack(p) && Board.isSafeSquare(Board.globalIndex(color, p))
-                    app.hop(p - e.from - 1)
-                    stage.hop(pc, to, if (last) HOP_LAST else HOP_STEP, if (last) HOP_LAST_HEIGHT else HOP_HEIGHT, {
+                    val steps = e.to - e.from
+                    val step = p - e.from - 1
+                    // Heading for something big (a capture or home): the hops climb higher as the piece gets closer.
+                    val big = captures.isNotEmpty() || reachedHome
+                    val lift = if (big && steps > 1) 1f + 0.35f * step / (steps - 1f) else 1f
+                    app.hop(step, steps, big)
+                    stage.hop(pc, to, if (last) HOP_LAST else HOP_STEP, (if (last) HOP_LAST_HEIGHT else HOP_HEIGHT) * lift, {
                         if (last) {
                             stage.landingDust(to, col)
                             if (safe) stage.shieldBubble(pc, col)
                             app.sfx(SfxId.Land, 0.7f); app.haptic(Haptic.Light)
+                            if (!reachedHome) app.arrive(steps)
                         }
                     }, anticipate = p == e.from + 1, scale = scale)
                 }
@@ -764,7 +770,7 @@ class MatchDirector(val stage: Stage) {
                 val last = p == to
                 val at = Geo.piece(color, piece, p)
                 if (p == Board.HOME_LANE_START) st.laneEntry(at, style.seat[color])
-                app.hop(p - from - 1)
+                app.hop(p - from - 1, to - from)
                 st.hop(pc, at, if (last) HOP_LAST else HOP_STEP, if (last) HOP_LAST_HEIGHT else HOP_HEIGHT, {
                     if (last) { st.landingDust(at, style.seat[color]); app.sfx(SfxId.Land, 0.7f); onLast?.invoke(at) }
                 }, anticipate = p == from + 1)

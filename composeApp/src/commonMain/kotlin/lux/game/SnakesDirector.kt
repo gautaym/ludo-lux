@@ -141,13 +141,17 @@ class SnakesDirector(val stage: Stage) {
     // ================================================================ events -> animation
 
     private suspend fun play(evs: List<SnakesEvent>) {
-        for (e in evs) {
+        for ((n, e) in evs.withIndex()) {
             val pc = sprites.getOrNull(e.seat)
             val name = seats.getOrNull(e.seat)?.name.orEmpty()
             val col = seats.getOrNull(e.seat)?.let { style.seat[it.color] } ?: Color.White
             when (e.type) {
                 SnakesEventType.Rolled -> rollDie(e.value)
-                SnakesEventType.Moved -> walk(pc!!, e.from, e.to, col)
+                SnakesEventType.Moved -> {
+                    // Walking onto a ladder, a snake or square 100: the hops build up to it.
+                    val next = evs.getOrNull(n + 1)?.type
+                    walk(pc!!, e.from, e.to, col, big = next == SnakesEventType.Ladder || next == SnakesEventType.Snake || next == SnakesEventType.Finished)
+                }
                 SnakesEventType.Bounced -> { say("Too far - back you go!", Color.White, 0.9f); walk(pc!!, e.from, e.to, col, back = true) }
                 SnakesEventType.Waiting -> {
                     app.sfx(SfxId.NoMove, 0.6f)
@@ -181,15 +185,19 @@ class SnakesDirector(val stage: Stage) {
     }
 
     /** Hops square by square ([back] = bouncing back down from 100). */
-    private suspend fun walk(pc: PieceSprite, from: Int, to: Int, col: Color, back: Boolean = false) {
+    private suspend fun walk(pc: PieceSprite, from: Int, to: Int, col: Color, back: Boolean = false, big: Boolean = false) {
         val steps = if (back) (from - 1 downTo to).toList() else (from + 1..to).toList()
         pc.busy = true
         for ((i, cell) in steps.withIndex()) {
             val last = i == steps.lastIndex
             val dest = SnakesGeo.centre(cell)
-            app.hop(i)
-            stage.hop(pc, dest, if (last) 0.24f else 0.17f, if (last) 1.2f else 0.85f, {
-                if (last) { stage.landingDust(dest, col); app.sfx(SfxId.Land, 0.7f); app.haptic(Haptic.Light) }
+            app.hop(i, steps.size, big)
+            val lift = if (big && steps.size > 1) 1f + 0.35f * i / (steps.size - 1f) else 1f
+            stage.hop(pc, dest, if (last) 0.24f else 0.17f, (if (last) 1.2f else 0.85f) * lift, {
+                if (last) {
+                    stage.landingDust(dest, col); app.sfx(SfxId.Land, 0.7f); app.haptic(Haptic.Light)
+                    if (!big && !back) app.arrive(steps.size)
+                }
             }, anticipate = i == 0, scale = solo)
         }
         pc.busy = false

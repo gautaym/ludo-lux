@@ -23,6 +23,8 @@ enum class SfxId {
     HopNote, HopBoing, HopTabla,
     /** Other "caught" sounds: a sad trombone, a falling slide whistle, a cartoon bonk. */
     CaughtWomp, CaughtWhistle, CaughtBonk,
+    /** A small "ta-da" when a long walk lands: the tune of the hops resolving. */
+    Arrive,
 }
 
 /**
@@ -66,6 +68,7 @@ object Synth {
         SfxId.HopNote -> listOf(mix(bell(1046.5f, 0.35f, 0.32f), tone(0.12f, 1046.5f, 1046.5f, 0.12f, 0.002f, 25f, 0f)))
         SfxId.HopBoing -> (0 until 2).map { boing(it) }
         SfxId.HopTabla -> (0 until 3).map { tabla(it) }
+        SfxId.Arrive -> listOf(mix(offset(bell(1568f, 0.5f, 0.22f), 0f, 0.75f), offset(bell(2093f, 0.6f, 0.26f), 0.08f, 0.75f), offset(bell(1318.5f, 0.6f, 0.12f), 0.08f, 0.75f)))
         SfxId.CaughtWomp -> listOf(womp())
         SfxId.CaughtWhistle -> listOf(slideWhistle())
         SfxId.CaughtBonk -> listOf(bonk())

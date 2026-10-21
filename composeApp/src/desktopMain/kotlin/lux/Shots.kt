@@ -234,7 +234,7 @@ fun main(args: Array<String>) {
         val t0 = System.nanoTime()
         java.io.File(dir, "music.wav").writeBytes(lux.audio.Synth.music())
         println("music built in ${(System.nanoTime() - t0) / 1_000_000} ms")
-        for (id in listOf(lux.audio.SfxId.CaughtWomp, lux.audio.SfxId.CaughtWhistle, lux.audio.SfxId.CaughtBonk, lux.audio.SfxId.HopNote, lux.audio.SfxId.HopBoing, lux.audio.SfxId.HopTabla, lux.audio.SfxId.Pip, lux.audio.SfxId.Caught, lux.audio.SfxId.HomeEnter, lux.audio.SfxId.Hop))
+        for (id in listOf(lux.audio.SfxId.Arrive, lux.audio.SfxId.CaughtWomp, lux.audio.SfxId.CaughtWhistle, lux.audio.SfxId.CaughtBonk, lux.audio.SfxId.HopNote, lux.audio.SfxId.HopBoing, lux.audio.SfxId.HopTabla, lux.audio.SfxId.Pip, lux.audio.SfxId.Caught, lux.audio.SfxId.HomeEnter, lux.audio.SfxId.Hop))
             lux.audio.Synth.build(id).forEachIndexed { i, w -> java.io.File(dir, "${id.name}_$i.wav").writeBytes(w) }
     }
     if ("snakes" in want) {
