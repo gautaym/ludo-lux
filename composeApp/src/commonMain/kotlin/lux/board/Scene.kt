@@ -367,8 +367,10 @@ fun DrawScope.drawDie(d: DieSprite, view: View, st: BoardStyle, time: Float) {
     val centre = Offset(ground.x, ground.y - d.z * cell * LIFT - s * 0.1f)
     val glow = d.pulse(time)
     if (d.glow > 0.01f) {
-        drawCircle(Brush.radialGradient(listOf(d.accent.copy(alpha = 0.55f * d.glow), Color.Transparent), ground, cell * (1.25f + 0.25f * glow)), cell * (1.25f + 0.25f * glow), ground)
-        drawCircle(Color.White.copy(alpha = 0.85f * d.glow), cell * (0.95f + 0.12f * glow), ground, style = Stroke(cell * 0.07f))
+        // The "tap me" glow grows with a bigger die (up to the Ludo die's size), so it still rings it.
+        val g = cell * d.scale.coerceIn(1f, 1.2f)
+        drawCircle(Brush.radialGradient(listOf(d.accent.copy(alpha = 0.55f * d.glow), Color.Transparent), ground, g * (1.25f + 0.25f * glow)), g * (1.25f + 0.25f * glow), ground)
+        drawCircle(Color.White.copy(alpha = 0.85f * d.glow), g * (0.95f + 0.12f * glow), ground, style = Stroke(cell * 0.07f))
     }
     drawCube(centre, s, d.rx, d.ry, d.rz, st.diceBody, st.dicePip)
 }

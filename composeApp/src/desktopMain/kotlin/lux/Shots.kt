@@ -185,6 +185,28 @@ fun main(args: Array<String>) {
         }
         print(log)
     }
+    if ("sidetap" in want) {
+        // Pass-and-play: a tap on your own side of the screen rolls; a tap on someone else's does not.
+        val log = StringBuilder()
+        for (n in listOf(2, 4)) {
+            val colors = if (n == 2) listOf(0, 2) else listOf(0, 1, 2, 3)
+            val seats = colors.map { SeatConfig(it, cpu = false, name = "P$it") }
+            record("sidetap$n", 3f, 0.5f, null, w = 540, h = 1170, density = 1.375f) {
+                TestMatch(AppContext(SilentPlatform), "royal", seats) { d ->
+                    d.stage.launch { d.run() }
+                    d.stage.wait(0.5f)
+                    // Screen-oriented board units (0..15 is the board; beyond it is the rest of the screen).
+                    fun tapScreen(x: Float, y: Float) = d.tapBoard(lux.game.Geo.rotate(lux.game.G(x, y), -d.stage.viewTurns))
+                    val before = d.state!!.sequence
+                    tapScreen(14f, 1f); d.stage.wait(0.4f)
+                    log.appendLine("$n players, tap top-right (not mine): rolled=${d.state!!.sequence != before}")
+                    tapScreen(if (n == 2) 13f else 2f, 17f); d.stage.wait(0.4f)
+                    log.appendLine("$n players, tap below the board on my side: rolled=${d.state!!.sequence != before}")
+                }
+            }
+        }
+        print(log)
+    }
     if ("rankedresult" in want) {
         val r = lux.core.net.RankedResult(listOf(
             lux.core.net.RankChange(0, "me", "Asha", 1, 21, "Gold III", "Gold II", promoted = true, demoted = false, placement = 0, left = false, progressBefore = 0.8f, progressAfter = 0.2f),

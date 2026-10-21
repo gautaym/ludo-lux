@@ -161,6 +161,7 @@ class MatchDirector(val stage: Stage) {
         stage.viewTurns = ((3 - face) % 4 + 4) % 4
         stage.die.visible = true
         stage.die.pos = Geo.baseCentre(sorted[state!!.current].color)
+        stage.die.scale = DIE_SCALE
         stage.die.value = 6
         stage.die.rx = 0f; stage.die.ry = 0f; stage.die.rz = 0f
         current = state!!.current
@@ -350,12 +351,26 @@ class MatchDirector(val stage: Stage) {
         showResults = true
     }
 
+    /**
+     * Did the player tap their own side of the screen? A generous target for older players: with 3 or 4 players it is
+     * the whole quarter of the screen round their yard (out to the screen's edges); with 2 it is their half
+     * (top or bottom, or left or right if the two sit side by side).
+     */
     private fun tapOnDie(color: Int): Boolean {
         val t = tap ?: return false
         tap = null
-        // Generous target for older players: anywhere in the active yard.
-        val c = Geo.baseCentre(color)
-        return kotlin.math.abs(t.x - c.x) < 3.2f && kotlin.math.abs(t.y - c.y) < 3.2f
+        val turns = stage.viewTurns
+        // Everything in screen orientation, so "top half" means the top of the phone.
+        val p = Geo.rotate(t, turns)
+        val me = Geo.rotate(Geo.baseCentre(color), turns)
+        fun left(g: G) = g.x < 7.5f
+        fun upper(g: G) = g.y < 7.5f
+        val others = seats.map { Geo.rotate(Geo.baseCentre(it.color), turns) }.filter { left(it) != left(me) || upper(it) != upper(me) }
+        if (seats.size == 2 && others.size == 1) {
+            val o = others[0]
+            return if (upper(o) != upper(me)) upper(p) == upper(me) else left(p) == left(me)
+        }
+        return left(p) == left(me) && upper(p) == upper(me)
     }
 
     /** One distinct choice: the move, the pieces that stand for it (a whole stack, or every piece in the yard), and where it lands. */
@@ -431,7 +446,7 @@ class MatchDirector(val stage: Stage) {
             val e = 1f - (1f - k) * (1f - k) * (1f - k)
             d.rx = mix(sx, ex, e); d.ry = mix(sy, ey, e); d.rz = mix(sz, ez, e)
             d.z = if (k < 0.72f) { val q = k / 0.72f; 1.6f * 4f * q * (1f - q) } else { val q = (k - 0.72f) / 0.28f; 0.3f * 4f * q * (1f - q) }
-            d.scale = 1f + d.z * 0.12f
+            d.scale = DIE_SCALE + d.z * 0.14f
             if (!bounced && k >= 0.72f) {
                 bounced = true
                 d.impulse(-8f)
@@ -440,7 +455,7 @@ class MatchDirector(val stage: Stage) {
             }
         }
         d.rx = tx; d.ry = ty; d.rz = tz
-        d.z = 0f; d.scale = 1f
+        d.z = 0f; d.scale = DIE_SCALE
         d.value = value
         d.impulse(-6f)
         app.sfx(SfxId.DiceBounce, 0.6f)
@@ -834,6 +849,8 @@ class MatchDirector(val stage: Stage) {
 
     companion object {
         const val ALL_HOME_SECONDS = 3.1f
+        /** The die is drawn 20% bigger than one board unit's standard size (easier to see). */
+        const val DIE_SCALE = 1.2f
         /** Home celebrations run this much longer than the rest of the game (bigger by [HOME_FX] / [ALL_HOME_FX]). */
         const val HOME_TEMPO = 1.5f
         const val HOME_FX = 1.4f
