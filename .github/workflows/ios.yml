@@ -49,6 +49,17 @@ jobs:
           if xcrun simctl spawn "$DEV" launchctl list | grep -q com.ludolux.app; then echo "RUNNING" | tee run-status.txt; else echo "NOT RUNNING" | tee run-status.txt; fi
           xcrun simctl spawn "$DEV" log show --last 2m --style compact --predicate 'process == "LudoLux"' > app-log.txt || true
           grep -q RUNNING run-status.txt && ! grep -q "NOT RUNNING" run-status.txt
+          # More screens, opened by the app's -luxDemo launch switch (the simulator cannot tap).
+          shot() { xcrun simctl terminate "$DEV" com.ludolux.app || true; xcrun simctl launch "$DEV" com.ludolux.app -luxDemo "$1"; sleep "$2"; xcrun simctl io "$DEV" screenshot "$3"; }
+          shot setup 12 ios-setup.png
+          shot style 12 ios-style.png
+          xcrun simctl terminate "$DEV" com.ludolux.app || true
+          xcrun simctl launch "$DEV" com.ludolux.app -luxDemo showcase
+          for t in 6 12 18 26 36 48; do sleep 6; xcrun simctl io "$DEV" screenshot "ios-game-$t.png"; done
+          shot snakes 12 ios-snakes.png
+          shot ludo 3 /dev/null || true
+          # The step fails if the app had crashed on start.
+          grep -qx RUNNING run-status.txt
       - name: Pack the simulator app
         if: always()
         run: |
@@ -63,6 +74,6 @@ jobs:
         run: |
           gh release view ios-latest >/dev/null 2>&1 || gh release create ios-latest --prerelease --title "iOS test build (simulator)" \
             --notes "Built automatically from main. LudoLux-simulator.zip runs in the Xcode iOS Simulator on a Mac; real iPhones need TestFlight."
-          for f in LudoLux-simulator.zip ios-home.png run-status.txt app-log.txt build-log-tail.txt; do
+          for f in LudoLux-simulator.zip ios-*.png run-status.txt app-log.txt build-log-tail.txt; do
             [ -f "$f" ] && gh release upload ios-latest "$f" --clobber || true
           done

@@ -281,6 +281,8 @@ class Nav {
     var onBack: (() -> Unit)? = null
     /** Called when the app goes to the background (auto-pause). */
     var onBackground: (() -> Unit)? = null
+    /** A sheet to show open when the menu first appears ("setup" or "style"): used by automated screenshots. */
+    var menuSheet = ""
 
     /** Returns false when back should close the app. */
     fun back(): Boolean {

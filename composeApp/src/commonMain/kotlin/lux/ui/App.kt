@@ -74,6 +74,7 @@ fun LuxApp(app: AppContext, nav: Nav) {
                                 onRanked = { nav.screen = Screen.Ranked },
                                 onShop = { nav.screen = Screen.Shop },
                                 onAdvertise = { nav.screen = Screen.Advertise },
+                                startSheet = nav.menuSheet.also { nav.menuSheet = "" },
                             )
                         }
                         Screen.Match -> key(nav.matchKey) { MatchHost(app, nav, showcase = false) }
