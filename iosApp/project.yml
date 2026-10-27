@@ -36,4 +36,4 @@ targets:
         script: |
           cd "$SRCROOT/.."
           if [ -z "$JAVA_HOME" ] && [ -x /usr/libexec/java_home ]; then export JAVA_HOME="$(/usr/libexec/java_home -v 17 2>/dev/null || /usr/libexec/java_home)"; fi
-          ./gradlew :composeApp:embedAndSignAppleFrameworkForXcode --no-configuration-cache
+          bash ./gradlew :composeApp:embedAndSignAppleFrameworkForXcode --no-configuration-cache
