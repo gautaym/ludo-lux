@@ -15,6 +15,13 @@ kotlin {
     }
     // Desktop build: used for fast previews and automated screenshots while developing.
     jvm("desktop")
+    // iPhone / iPad: the shared game as a framework the Swift app in iosApp/ embeds.
+    listOf(iosArm64(), iosSimulatorArm64(), iosX64()).forEach {
+        it.binaries.framework {
+            baseName = "ComposeApp"
+            isStatic = true
+        }
+    }
 
     sourceSets {
         val desktopMain by getting
@@ -37,6 +44,9 @@ kotlin {
             implementation(libs.androidx.credentials.play)
             implementation(libs.googleid)
             implementation(libs.billing.ktx)
+        }
+        iosMain.dependencies {
+            implementation(libs.ktor.client.darwin)
         }
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)

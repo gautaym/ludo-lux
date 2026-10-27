@@ -1,0 +1,66 @@
+# Builds the iPhone app on a GitHub Mac, starts it in the iOS simulator and takes a screenshot, so the iOS version is
+# checked on every change without a Mac of our own. The simulator app, screenshot and build log are attached to the
+# "ios-latest" pre-release (simulator builds only: a real iPhone needs an Apple Developer account and TestFlight).
+name: iOS build
+
+on:
+  push:
+    branches: [main]
+    paths: ["composeApp/**", "core/**", "iosApp/**", "gradle/**", "*.gradle.kts", "gradle.properties", ".github/workflows/ios.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  simulator:
+    runs-on: macos-15
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Make the Xcode project
+        run: |
+          brew install xcodegen
+          cd iosApp && xcodegen generate
+      - name: Build for the simulator
+        run: |
+          set -o pipefail
+          xcodebuild -project iosApp/LudoLux.xcodeproj -scheme LudoLux -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath build/ios CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build-log.txt | tail -n 40
+      - name: Run it in the simulator and take screenshots
+        run: |
+          DEV=$(xcrun simctl list devices available -j | python3 -c "import json,sys
+          d=json.load(sys.stdin)['devices']
+          print(next(x['udid'] for k,v in d.items() if 'iOS' in k for x in v if x['name'].startswith('iPhone')))")
+          xcrun simctl boot "$DEV"
+          xcrun simctl bootstatus "$DEV" -b
+          xcrun simctl install "$DEV" build/ios/Build/Products/Debug-iphonesimulator/LudoLux.app
+          xcrun simctl launch "$DEV" com.ludolux.app
+          sleep 30
+          xcrun simctl io "$DEV" screenshot ios-home.png
+          # Still running after 30 s? (a crash on start would show here)
+          if xcrun simctl spawn "$DEV" launchctl list | grep -q com.ludolux.app; then echo "RUNNING" | tee run-status.txt; else echo "NOT RUNNING" | tee run-status.txt; fi
+          xcrun simctl spawn "$DEV" log show --last 2m --style compact --predicate 'process == "LudoLux"' > app-log.txt || true
+          grep -q RUNNING run-status.txt && ! grep -q "NOT RUNNING" run-status.txt
+      - name: Pack the simulator app
+        if: always()
+        run: |
+          if [ -d build/ios/Build/Products/Debug-iphonesimulator/LudoLux.app ]; then
+            (cd build/ios/Build/Products/Debug-iphonesimulator && zip -qry "$GITHUB_WORKSPACE/LudoLux-simulator.zip" LudoLux.app)
+          fi
+          tail -n 300 build-log.txt > build-log-tail.txt 2>/dev/null || echo "no build log" > build-log-tail.txt
+      - name: Publish to the ios-latest pre-release
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view ios-latest >/dev/null 2>&1 || gh release create ios-latest --prerelease --title "iOS test build (simulator)" \
+            --notes "Built automatically from main. LudoLux-simulator.zip runs in the Xcode iOS Simulator on a Mac; real iPhones need TestFlight."
+          for f in LudoLux-simulator.zip ios-home.png run-status.txt app-log.txt build-log-tail.txt; do
+            [ -f "$f" ] && gh release upload ios-latest "$f" --clobber || true
+          done

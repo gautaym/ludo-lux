@@ -16,3 +16,5 @@ deploy/data/
 deploy/secrets/
 deploy/caddy-data/
 deploy/caddy-config/
+# Generated on a Mac by xcodegen (iosApp/project.yml is the source)
+iosApp/LudoLux.xcodeproj/

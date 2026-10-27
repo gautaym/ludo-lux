@@ -37,6 +37,9 @@ object Synth {
     /** Variants of [id] as WAV files; empty when the sound comes from a recorded sample instead. */
     fun build(id: SfxId): List<ByteArray> = clips(id).map { wav(finish(it)) }
 
+    /** The same variants as raw samples (-1..1) at [RATE], for players that pitch-shift them first (iOS). */
+    fun buildRaw(id: SfxId): List<FloatArray> = clips(id).map { finish(it) }
+
     private fun clips(id: SfxId): List<FloatArray> = when (id) {
         SfxId.UiTap -> listOf(tone(0.07f, 740f, 980f, 0.35f, 0.004f, 14f, 0f))
         SfxId.UiBack -> listOf(tone(0.08f, 520f, 380f, 0.3f, 0.004f, 14f, 0f))
