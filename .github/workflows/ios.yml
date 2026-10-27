@@ -3,9 +3,12 @@
 # "ios-latest" pre-release (simulator builds only: a real iPhone needs an Apple Developer account and TestFlight).
 name: iOS build
 
-# Started by hand (Actions > iOS build > Run workflow): on a private repository every Mac minute counts 10x against the
-# free allowance, so builds run only when a new iPhone build is wanted.
+# Runs on every change to the app (free while the repository is public). If it is made private, Mac minutes count 10x
+# against the free allowance: then keep only workflow_dispatch (Actions > iOS build > Run workflow).
 on:
+  push:
+    branches: [main]
+    paths: ["composeApp/**", "core/**", "iosApp/**", "gradle/**", "*.gradle.kts", "gradle.properties", ".github/workflows/ios.yml"]
   workflow_dispatch:
 
 permissions:
